@@ -189,8 +189,8 @@ def name_key(text):
     return re.sub(r"[\s\-]+", " ", text.casefold()).strip()
 
 
-def canonicalize_names(records, field):
-    """Rewrite records[field] to one display spelling per name_key.
+def canonical_spellings(records, field):
+    """name_key -> display spelling for records[field].
 
     The spelling used most often across the records wins; ties go to the
     alphabetically first spelling (so the result does not depend on row order).
@@ -200,10 +200,15 @@ def canonicalize_names(records, field):
         value = record[field]
         if value is not None:
             counts.setdefault(name_key(value), Counter())[value] += 1
-    canonical = {
+    return {
         key: min(spellings.items(), key=lambda item: (-item[1], item[0]))[0]
         for key, spellings in counts.items()
     }
+
+
+def canonicalize_names(records, field):
+    """Rewrite records[field] to one display spelling per name_key (see canonical_spellings)."""
+    canonical = canonical_spellings(records, field)
     for record in records:
         if record[field] is not None:
             record[field] = canonical[name_key(record[field])]
@@ -313,6 +318,35 @@ def _read_rows(path):
         yield from csv.DictReader(f)
 
 
+def iter_source_rows(raw_dir=None, allow_missing=False):
+    """Yield (file spec, raw row) for every row of every SGO file, placeholders included.
+
+    Files come in config.SGO_FILES order. A missing file raises unless
+    allow_missing is set.
+    """
+    raw_dir = Path(raw_dir if raw_dir is not None else config.RAW_DIR)
+    for spec in config.SGO_FILES:
+        path = raw_dir / (spec["key"] + ".csv")
+        if not path.exists():
+            if allow_missing:
+                continue
+            raise FileNotFoundError(path)
+        for row in _read_rows(path):
+            yield spec, row
+
+
+def collect_ads_entities(entries):
+    """Reporting entities with at least one non-placeholder row in an ADS-kind file.
+
+    entries: iterable of (file spec, raw row). See company_and_program.
+    """
+    return frozenset(
+        _clean(row.get("Reporting Entity"))
+        for spec, row in entries
+        if spec["kind"] == "ADS" and not is_placeholder(row)
+    )
+
+
 def load_all(raw_dir=None, allow_missing=False):
     """Harmonize every SGO file in raw_dir into a list of Records.
 
@@ -326,36 +360,27 @@ def load_all(raw_dir=None, allow_missing=False):
     (tests use that with a two-file fixture directory).
     """
     global SKIPPED_PLACEHOLDERS
-    raw_dir = Path(raw_dir if raw_dir is not None else config.RAW_DIR)
     schema.UNMAPPED.clear()
     LOAD_STATS.clear()
     SKIPPED_PLACEHOLDERS = 0
 
+    entries = list(iter_source_rows(raw_dir, allow_missing))
+    ads_entities = collect_ads_entities(entries)
     latest = {}  # report id -> (version, row, era, kind)
-    ads_entities = set()  # entities with at least one report in an ADS-kind file
-    for spec in config.SGO_FILES:
-        path = raw_dir / (spec["key"] + ".csv")
-        if not path.exists():
-            if allow_missing:
-                continue
-            raise FileNotFoundError(path)
-        for row in _read_rows(path):
-            LOAD_STATS["rows"] += 1
-            if is_placeholder(row):
-                LOAD_STATS["placeholder_rows"] += 1
-                SKIPPED_PLACEHOLDERS += 1
-                continue
-            if spec["kind"] == "ADS":
-                ads_entities.add(_clean(row.get("Reporting Entity")))
-            version = _version(row, spec["era"])
-            report_id = _clean(row.get("Report ID"))
-            current = latest.get(report_id)
-            if current is not None and version == current[0]:
-                LOAD_STATS["tied_versions"] += 1
-            if current is None or version > current[0]:
-                latest[report_id] = (version, row, spec["era"], spec["kind"])
+    for spec, row in entries:
+        LOAD_STATS["rows"] += 1
+        if is_placeholder(row):
+            LOAD_STATS["placeholder_rows"] += 1
+            SKIPPED_PLACEHOLDERS += 1
+            continue
+        version = _version(row, spec["era"])
+        report_id = _clean(row.get("Report ID"))
+        current = latest.get(report_id)
+        if current is not None and version == current[0]:
+            LOAD_STATS["tied_versions"] += 1
+        if current is None or version > current[0]:
+            latest[report_id] = (version, row, spec["era"], spec["kind"])
 
-    ads_entities = frozenset(ads_entities)
     records = [harmonize_row(row, era, kind, ads_entities) for _, row, era, kind in latest.values()]
     records.sort(key=lambda r: r["id"])
     canonicalize_names(records, "make")

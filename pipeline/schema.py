@@ -604,3 +604,137 @@ UNKNOWN_FIELD_KEYS = (
     "towed",
     "narrative",
 )
+
+# --------------------------------------------------------------------------
+# Golden-database additions (Task 4b). They map columns that the Task 2 Record
+# drops. As above, a label that is not listed is recorded in UNMAPPED.
+# --------------------------------------------------------------------------
+
+# Contact-area flag columns: "<SV|CP> Contact Area - <suffix>" ('Y' or blank).
+# Same suffixes in both eras. "unknown" is listed when its flag is set.
+CONTACT_AREA_SUFFIXES = {
+    "Front": "front",
+    "Front Left": "front_left",
+    "Front Right": "front_right",
+    "Left": "left",
+    "Right": "right",
+    "Rear": "rear",
+    "Rear Left": "rear_left",
+    "Rear Right": "rear_right",
+    "Top": "top",
+    "Bottom": "bottom",
+    "Unknown": "unknown",
+}
+
+# Data Availability flag columns (same in both eras) -> label.
+DATA_AVAILABILITY_COLUMNS = {
+    "Data Availability - EDR": "edr",
+    "Data Availability - Police Rpt": "police_report",
+    "Data Availability - Telematics": "telematics",
+    "Data Availability - Complaints": "complaints",
+    "Data Availability - Video": "video",
+    "Data Availability - Other": "other",
+    "Data Availability - No Data": "none",
+    "Data Availability - Unknown": "unknown",
+}
+
+# "How did the reporter learn of the crash" flag columns -> label, per era.
+REPORT_SOURCE_COLUMNS = {
+    "archive": {
+        "Source - Complaint/Claim": "complaint_claim",
+        "Source - Field Report": "field_report",
+        "Source - Law Enforcement": "law_enforcement",
+        "Source - Media": "media",
+        "Source - Telematics": "telematics",
+        "Source - Testing": "testing",
+        "Source - Other": "other",
+    },
+    "current": {
+        "Source - Complaint/Claim": "complaint_claim",
+        "Source - Field Report": "field_report",
+        "Source - Internal Process Review": "internal_process_review",
+        "Source - Law Enforcement": "law_enforcement",
+        "Source - Media": "media",
+        "Source - NHTSA VOQ": "nhtsa_voq",
+        "Source - State or Other Agency": "state_or_other_agency",
+        "Source - Telematics": "telematics",
+        "Source - Testing": "testing",
+        "Source - Other Entity": "other_entity",
+        "Source - Other - See Narrative": "other",
+    },
+}
+
+# Roadway conditions. Archive has one label column ("Roadway Description"),
+# current has one flag column per condition.
+ROADWAY_CONDITION_LABELS = {  # archive
+    "No Unusual Conditions": "no_unusual",
+    "Work Zone": "work_zone",
+    "Traffic Incident": "traffic_incident",
+    "Missing / Degraded Markings": "degraded_markings",
+    "Other, see Narrative": "other",
+    "Unknown": "unknown",
+}
+ROADWAY_CONDITION_COLUMNS = {  # current
+    "Roadway-No Unusual Conditions": "no_unusual",
+    "Roadway-Work Zone": "work_zone",
+    "Roadway-Traffic Incident": "traffic_incident",
+    "Roadway-Missing/Degraded Marking": "degraded_markings",
+    "Roadway-Degraded Surface": "degraded_surface",
+    "Roadway-Wet Surface Condition": "wet_surface",
+    "Roadway-Other-See Narrative": "other",
+    "Roadway-Unknown": "unknown",
+}
+
+DRIVER_OPERATOR_TYPE = {
+    "Consumer": "consumer",
+    "In-Vehicle (Commercial / Test)": "in_vehicle",
+    "Remote (Commercial / Test)": "remote",
+    "In-Vehicle and Remote (Commercial / Test)": "in_vehicle_and_remote",
+    "None": "none",
+    "Other, see Narrative": "other",
+    "Unknown": "unknown",
+}
+
+ENGAGEMENT_STATUS = {  # current only
+    "Verified Engaged": "verified_engaged",
+    "Alleged Engaged": "alleged_engaged",
+    "Verified Not Engaged": "verified_not_engaged",
+    "Unknown - see Narrative": "unknown",
+}
+
+YES_NO_UNKNOWN = {"Yes": "yes", "No": "no", "Unknown": "unknown", "Unknown, see Narrative": "unknown"}
+
+# Passengers belted: archive column "SV Were All Passengers Belted?", current
+# column "Were All Passengers Belted?".
+BELTED = {
+    "Yes": "all_belted",
+    "Subject Vehicle - All Belted": "all_belted",
+    "No Passengers in Vehicle": "no_passengers",
+    "Subject Vehicle - No Passenger In Vehicle": "no_passengers",
+    "No, see Narrative": "not_all_belted",
+    "Subject Vehicle - Not Belted - see Narrative": "not_all_belted",
+    "Unknown": "unknown",
+}
+
+VIN_DECODED = {"Y": True, "N": False}  # current only
+
+# Values of Investigating Agency that say no agency investigated (lower case).
+NO_AGENCY = frozenset({"na", "n/a", "none", "no", "-", "not applicable"})
+
+# Version-text columns -> (value column, CBI flag column, unknown flag column)
+# per era. System version exists in both eras; hardware and software versions
+# only in archive.
+VERSION_COLUMNS = {
+    "system_version": {
+        "archive": ("ADAS/ADS System Version", "ADAS/ADS System Version CBI", "ADAS/ADS System Version - Unk"),
+        "current": ("Automation Feature Version", "Automation Feature Version CBI", None),
+    },
+    "hardware_version": {
+        "archive": ("ADAS/ADS Hardware Version", "ADAS/ADS Hardware Version CBI", "ADAS/ADS Hardware Version - Unk"),
+        "current": None,
+    },
+    "software_version": {
+        "archive": ("ADAS/ADS Software Version", "ADAS/ADS Software Version CBI", "ADAS/ADS Software Version - Unk"),
+        "current": None,
+    },
+}
