@@ -161,6 +161,12 @@ Anyone is welcome to pick these up.
   (built: `pipeline/responsibility.py`, label_set `responsibility_rules_v1`, written to the `labels` table and
   exported as `responsibility*.json` with a rough keyword audit against readable narratives): rules on structured
   fields (SV/CP contact areas, pre-crash movements, speed, crash-with).
+  The rules (`responsibility_rules.json`): the other-party rules (RESP-OTH-1 to 4) require the crash partner to be
+  another road user, not a fixed object, pole, tree or animal; rear-only contact with an unclear SV movement is
+  RESP-OTH-4 (medium, backing cannot be ruled out); a lane departure that conflicts with the other fields (rear-only
+  contact, or a wrong-way / opposing-lane partner) is RESP-IND-2 (indeterminate); one narrative-basis guard,
+  RESP-NAR-1, turns OTH-1/SUB-3 into indeterminate when a readable narrative mentions a rider opening a door or
+  exiting; RESP-SUB-4 (low) was retired after the audit and is kept in `retired_rules`.
   Pass 2: an LLM reads narratives where they are not redacted (Waymo, Zoox, Cruise; almost none
   for Tesla) and is used to calibrate and audit pass 1. For Level 2 programs, driver vs. system cannot
   be separated from NHTSA data; the lens says so rather than guessing. Stored in the `labels` table.

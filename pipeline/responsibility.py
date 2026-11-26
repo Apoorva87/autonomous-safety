@@ -14,7 +14,10 @@ vehicle, CP = the crash partner):
                               hit a fixed object while moving ...)
   indeterminate               the structured fields do not support an inference
 
-The first matching rule wins (RULES is in evaluation order). Level-2 programs
+The first matching rule wins (RULES is in evaluation order). One rule has basis
+"narrative": RESP-NAR-1 reads the narrative (readable ones only) for a rider opening a door
+or exiting, and turns the field rules RESP-OTH-1 and RESP-SUB-3 into indeterminate.
+Retired rules are kept in RETIRED_RULES. Level-2 programs
 (tesla_l2, gm_supercruise, other_l2) cannot separate the human driver from the
 system in NHTSA data: their "subject_vehicle_initiated" says so through
 agent_hint = "driver_or_system" and never names either.
@@ -36,7 +39,7 @@ from pathlib import Path
 from . import golden
 
 LABEL_SET = "responsibility_rules_v1"
-RULES_VERSION = "1"
+RULES_VERSION = "2"
 MODEL = "rules"
 BASIS = "field"
 DISCLAIMER = (
@@ -72,15 +75,38 @@ SV_MANEUVERS = frozenset({
     "changing_lanes", "left_turn", "right_turn", "backing", "merging", "u_turn", "entering_traffic", "passing",
 })
 UNKNOWN_VALUES = frozenset({None, "", "unknown"})
+WRONG_WAY_PARTNERS = frozenset({"wrong_way", "crossing_opposing_lane"})
+# Narrative cues for a rider opening a door or exiting (word-boundary, case-insensitive): (name, pattern).
+DOOR_CUES = [
+    ("opened the door", re.compile(r"\bopened (?:(?:his|her|their|a|an|the) )?(?:[a-z'\-]+ ){0,3}?door\b", re.IGNORECASE)),
+    ("dooring", re.compile(r"\bdooring\b", re.IGNORECASE)),
+    ("exiting the vehicle", re.compile(r"\bexiting the vehicle\b", re.IGNORECASE)),
+    ("exited the vehicle", re.compile(r"\bexited the vehicle\b", re.IGNORECASE)),
+    ("passenger exit", re.compile(r"\bpassenger exit\b", re.IGNORECASE)),
+]
+
+
+def door_cue(text):
+    """Name of the first door/exit cue in a narrative, or None."""
+    for name, pattern in DOOR_CUES:
+        if pattern.search(text or ""):
+            return name
+    return None
 
 # One entry per rule, in evaluation order (the first match wins).
 RULES = [
+    {"id": "RESP-NAR-1", "label": INDETERMINATE, "confidence": "low",
+     "description": "Narrative basis, readable narratives only: the field rules RESP-OTH-1 or RESP-SUB-3 would "
+                    "apply but the narrative mentions a rider opening a door or exiting (cues: " + ", ".join(
+                        n for n, _ in DOOR_CUES) + "), so the contact may be the subject vehicle's own occupant's "
+                    "doing and no inference is made."},
     {"id": "RESP-OTH-1", "label": OTHER_PARTY, "confidence": "high",
      "description": "SV stopped or parked, with any known SV contact area, and the crash partner is another road "
                     "user (not a fixed object, pole, tree or animal): the other party moved into it."},
     {"id": "RESP-IND-2", "label": INDETERMINATE, "confidence": "low",
-     "description": "SV lane/road departure but contact only at the rear against another road user: the fields "
-                    "conflict, so no inference."},
+     "description": "SV lane/road departure that conflicts with the other fields, so no inference: contact only at "
+                    "the rear against another road user, or a partner that was going the wrong way or crossing "
+                    "into the opposing lane (the departure may have been evasive)."},
     {"id": "RESP-OTH-2", "label": OTHER_PARTY, "confidence": "high",
      "description": "SV contact only at the rear (rear, rear left, rear right), the SV movement is known and not "
                     "backing or a parking maneuver, and the crash partner is another road user: struck from behind."},
@@ -98,13 +124,20 @@ RULES = [
      "description": "The crash partner was maneuvering (lane change, turn, entering traffic, backing, wrong way, "
                     "crossing the opposing lane, U-turn, merging, passing) while the SV went straight or was "
                     "stopped, and the known SV contact is not front-only."},
-    {"id": "RESP-SUB-4", "label": SV_INITIATED, "confidence": "low",
-     "description": "SV maneuver (lane change, turn, backing, merging, U-turn, entering traffic, passing) with "
-                    "front or side contact and a partner going straight, stopped or parked."},
     {"id": "RESP-IND-1", "label": INDETERMINATE, "confidence": "low",
      "description": "SV pre-crash movement or SV contact area is missing or unknown, so no rule can apply."},
+    {"id": "RESP-IND-4", "label": INDETERMINATE, "confidence": "low",
+     "description": "SV was manoeuvring (lane change, turn, backing, merging, U-turn, entering traffic, passing) "
+                    "and no earlier rule applies: the evidence does not show who initiated contact."},
     {"id": "RESP-IND-3", "label": INDETERMINATE, "confidence": "low",
      "description": "The fields are known but the combination matches none of the rules."},
+]
+RETIRED_RULES = [
+    {"id": "RESP-SUB-4", "label": SV_INITIATED, "confidence": "low", "retired_in": "2",
+     "description": "SV maneuver (lane change, turn, backing, merging, U-turn, entering traffic, passing) with "
+                    "front or side contact and a partner going straight, stopped or parked.",
+     "reason": "Disagreed with narrative cues in 27 of 30 comparable reports (usually another vehicle struck the "
+               "subject vehicle during its maneuver); those reports are now indeterminate (RESP-IND-4)."},
 ]
 RULE_IDS = tuple(r["id"] for r in RULES)
 _RULE = {r["id"]: r for r in RULES}
@@ -188,11 +221,19 @@ def _rear_only(r):
 
 
 def _rule_ind_2(r):
-    if r.get("sv_movement") == "lane_departure" and _rear_only(r):
+    if r.get("sv_movement") != "lane_departure":
+        return None
+    if _rear_only(r):
         return (
             ("sv_movement", "sv_contact_areas", "crash_with"),
             "The subject vehicle left its lane or road but was contacted only at the rear, so the fields conflict "
             "and no inference is made.",
+        )
+    if r.get("cp_movement") in WRONG_WAY_PARTNERS:
+        return (
+            ("sv_movement", "cp_movement"),
+            "The subject vehicle left its lane or road while the crash partner was %s, so the fields conflict (the "
+            "departure may have been evasive) and no inference is made." % _fmt(r["cp_movement"]),
         )
 
 
@@ -253,14 +294,11 @@ def _rule_oth_3(r):
         )
 
 
-def _rule_sub_4(r):
-    contacts = _contacts(r)
-    if (r.get("sv_movement") in SV_MANEUVERS and contacts and contacts <= FRONT_OR_SIDE
-            and r.get("cp_movement") in ("proceeding_straight", "stopped", "parked")):
+def _rule_ind_4(r):
+    if r.get("sv_movement") in SV_MANEUVERS:
         return (
             ("sv_movement", "sv_contact_areas", "cp_movement"),
-            "The subject vehicle was maneuvering (%s) and contacted at %s a partner that was %s."
-            % (_fmt(r["sv_movement"]), _fmt(contacts), _fmt(r["cp_movement"])),
+            "The subject vehicle was manoeuvring but the evidence does not show who initiated contact.",
         )
 
 
@@ -284,9 +322,16 @@ def _rule_ind_3(r):
 _TESTS = {
     "RESP-OTH-1": _rule_oth_1, "RESP-IND-2": _rule_ind_2, "RESP-OTH-2": _rule_oth_2, "RESP-OTH-4": _rule_oth_4,
     "RESP-SUB-1": _rule_sub_1, "RESP-SUB-2": _rule_sub_2, "RESP-SUB-3": _rule_sub_3, "RESP-OTH-3": _rule_oth_3,
-    "RESP-SUB-4": _rule_sub_4, "RESP-IND-1": _rule_ind_1, "RESP-IND-3": _rule_ind_3,
+    "RESP-IND-1": _rule_ind_1, "RESP-IND-4": _rule_ind_4, "RESP-IND-3": _rule_ind_3,
 }
-assert list(_TESTS) == list(RULE_IDS)
+GUARDED_RULES = ("RESP-OTH-1", "RESP-SUB-3")
+GUARD_RULE = "RESP-NAR-1"
+assert [i for i in RULE_IDS if i != GUARD_RULE] == list(_TESTS)
+
+
+def _readable_narrative(report):
+    text = (report.get("raw") or {}).get("Narrative") or ""
+    return text if text.strip() and not report.get("narrative_redacted") else ""
 
 
 def classify_report(report):
@@ -294,13 +339,24 @@ def classify_report(report):
 
     Returns {label, rule, confidence, basis, evidence_fields, rationale, agent_hint}.
     """
-    for rule_id in RULE_IDS:
+    for rule_id in _TESTS:
         hit = _TESTS[rule_id](report)
         if hit is None:
             continue
         fields, rationale = hit
-        rule = _RULE[rule_id]
         evidence = _evidence(report, *fields)
+        cue = door_cue(_readable_narrative(report)) if rule_id in GUARDED_RULES else None
+        if cue:  # narrative guard: a rider's door or exit may explain the contact
+            rule = _RULE[GUARD_RULE]
+            evidence.update(field_rule=rule_id, narrative_cue=cue)
+            return {
+                "label": INDETERMINATE, "rule": GUARD_RULE, "confidence": rule["confidence"], "basis": "narrative",
+                "evidence_fields": evidence, "agent_hint": None,
+                "rationale": "The fields would give %s, but the narrative mentions a rider opening a door or "
+                             "exiting (%s), so the contact may be the subject vehicle's own occupant's doing and "
+                             "no inference is made." % (rule_id, cue),
+            }
+        rule = _RULE[rule_id]
         if report.get("program") in L2_PROGRAMS and report.get("engagement_status") == "verified_not_engaged":
             evidence["engagement_status"] = "verified_not_engaged"
             if rule["label"] == SV_INITIATED:
@@ -441,7 +497,7 @@ def build_rules():
     return {
         "label_set": LABEL_SET, "rules_version": RULES_VERSION, "disclaimer": DISCLAIMER,
         "labels": [{"label": label, "meaning": LABEL_MEANINGS[label]} for label in LABELS],
-        "agent_hints": AGENT_HINTS, "rules": RULES,
+        "agent_hints": AGENT_HINTS, "rules": RULES, "retired_rules": RETIRED_RULES,
     }
 
 

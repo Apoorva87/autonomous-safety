@@ -52,6 +52,18 @@ class OtherPartyRuleTests(unittest.TestCase):
             r = judge(sv_movement=movement, sv_contact_areas=["rear_right"])
             self.assertEqual((r["label"], r["rule"], r["confidence"]), ("other_party", "RESP-OTH-4", "medium"), movement)
 
+    def test_lane_departure_against_a_wrong_way_or_opposing_partner_is_a_conflict(self):
+        for cp in ("wrong_way", "crossing_opposing_lane"):
+            r = judge(sv_movement="lane_departure", sv_contact_areas=["front"], cp_movement=cp)
+            self.assertEqual((r["label"], r["rule"]), ("indeterminate", "RESP-IND-2"), cp)
+            self.assertIn("conflict", r["rationale"])
+            self.assertIn(cp.replace("_", " "), r["rationale"])
+            self.assertEqual(r["evidence_fields"]["cp_movement"], cp)
+
+    def test_lane_departure_against_an_ordinary_partner_stays_subject_initiated(self):
+        r = judge(sv_movement="lane_departure", sv_contact_areas=["front"], cp_movement="proceeding_straight")
+        self.assertEqual(r["rule"], "RESP-SUB-1")
+
     def test_lane_departure_with_rear_only_contact_is_a_conflict(self):
         r = judge(sv_movement="lane_departure", sv_contact_areas=["rear"])
         self.assertEqual((r["label"], r["rule"]), ("indeterminate", "RESP-IND-2"))
@@ -106,11 +118,22 @@ class SubjectVehicleRuleTests(unittest.TestCase):
         r = judge(sv_movement="unknown", speed_mph=None, sv_contact_areas=["front"], cp_movement="stopped")
         self.assertEqual(r["label"], "indeterminate")
 
-    def test_sv_maneuver_with_front_or_side_contact_is_low(self):
+    def test_sv_maneuver_with_front_or_side_contact_is_indeterminate_not_a_guess(self):
+        # retired RESP-SUB-4 labelled these subject_vehicle_initiated (low); the audit showed it was mostly wrong
         for movement in ("changing_lanes", "left_turn", "right_turn", "backing", "merging", "u_turn",
                          "entering_traffic", "passing"):
             r = judge(sv_movement=movement, sv_contact_areas=["left", "front_left"], cp_movement="proceeding_straight")
-            self.assertEqual((r["label"], r["rule"], r["confidence"]), ("subject_vehicle_initiated", "RESP-SUB-4", "low"), movement)
+            self.assertEqual((r["label"], r["rule"], r["confidence"]), ("indeterminate", "RESP-IND-4", "low"), movement)
+            self.assertEqual(r["rationale"], "The subject vehicle was manoeuvring but the evidence does not show who "
+                                             "initiated contact.")
+            self.assertIsNone(r["agent_hint"])
+
+    def test_retired_rules_are_kept_as_history(self):
+        self.assertEqual([r["id"] for r in resp.RETIRED_RULES], ["RESP-SUB-4"])
+        self.assertNotIn("RESP-SUB-4", resp.RULE_IDS)
+        note = resp.RETIRED_RULES[0]
+        self.assertEqual(set(note), {"id", "label", "confidence", "description", "retired_in", "reason"})
+        self.assertIn("27 of 30", note["reason"])
 
     def test_sv_maneuver_with_rear_contact_is_not_subject_initiated(self):
         r = judge(sv_movement="left_turn", sv_contact_areas=["front", "rear"], cp_movement="stopped")
@@ -196,6 +219,7 @@ class LabelShapeTests(unittest.TestCase):
             judge(sv_movement="proceeding_straight", sv_contact_areas=["left"], cp_movement="left_turn"),
             judge(sv_movement="left_turn", sv_contact_areas=["left"]),
             judge(sv_movement=None, sv_contact_areas=[]),
+            judge(sv_movement="stopped", narrative_redacted=False, raw={"Narrative": "The rider opened the door."}),
             judge(sv_movement="proceeding_straight", sv_contact_areas=FRONT),
         ]
         self.assertEqual({s["rule"] for s in samples}, ids)
@@ -206,6 +230,64 @@ class LabelShapeTests(unittest.TestCase):
         order = [rule["id"] for rule in resp.RULES]
         self.assertEqual(order, sorted(set(order), key=order.index))  # unique
         self.assertLess(order.index("RESP-OTH-1"), order.index("RESP-SUB-1"))
+
+
+def with_story(text, **kw):
+    r = report(**kw)
+    r["raw"] = {"Narrative": text}
+    return resp.classify_report(r)
+
+
+class DoorGuardTests(unittest.TestCase):
+    def test_cues_cover_the_door_and_exit_phrases(self):
+        for phrase in ("A rider opened the door as an SUV passed.", "The passenger opened his car door.",
+                       "A passenger opened the rear driver side door.", "She opened a vehicle door.",
+                       "Opened their passenger door into traffic.", "This was a dooring event.",
+                       "A cyclist hit the door while exiting the vehicle.", "The rider exited the vehicle.",
+                       "During passenger exit the door contacted a car.", "OPENED THE DOOR"):
+            self.assertTrue(resp.door_cue(phrase), phrase)
+
+    def test_cues_need_word_boundaries_and_the_right_words(self):
+        for phrase in ("The AV opened the gate.", "The door was damaged.", "The unopened doorway was clear.",
+                       "Standing doorman exited the vehiclelot.", "", None):
+            self.assertIsNone(resp.door_cue(phrase), phrase)
+
+    def test_door_story_overrides_stopped_sv_contact(self):
+        r = with_story("The rider opened the door into a passing SUV.", sv_movement="stopped", sv_contact_areas=["left"])
+        self.assertEqual((r["label"], r["rule"], r["basis"], r["confidence"]), ("indeterminate", "RESP-NAR-1", "narrative", "low"))
+        self.assertIn("RESP-OTH-1", r["rationale"])
+        self.assertIn("door", r["rationale"])
+        self.assertEqual(r["evidence_fields"]["narrative_cue"], "opened the door")
+        self.assertEqual(r["evidence_fields"]["field_rule"], "RESP-OTH-1")
+        self.assertIsNone(r["agent_hint"])
+        self.assertNotIn("passing SUV", json.dumps(r))  # cue name only, never narrative text
+
+    def test_door_story_overrides_a_moving_sv_with_a_stopped_partner(self):
+        r = with_story("A passenger in the SUV opened the rear door.", sv_movement="proceeding_straight",
+                       sv_contact_areas=["front_right"], cp_movement="parked")
+        self.assertEqual((r["rule"], r["evidence_fields"]["field_rule"]), ("RESP-NAR-1", "RESP-SUB-3"))
+
+    def test_door_story_does_not_touch_other_rules(self):
+        r = with_story("The rider opened the door.", sv_movement="proceeding_straight", sv_contact_areas=["rear"])
+        self.assertEqual((r["rule"], r["basis"]), ("RESP-OTH-2", "field"))
+        r = with_story("The rider opened the door.", sv_movement="lane_departure", sv_contact_areas=["front"])
+        self.assertEqual(r["rule"], "RESP-SUB-1")
+
+    def test_redacted_or_empty_narratives_never_trigger_the_guard(self):
+        r = with_story("The rider opened the door.", sv_movement="stopped", narrative_redacted=True)
+        self.assertEqual(r["rule"], "RESP-OTH-1")
+        r = with_story("", sv_movement="stopped")
+        self.assertEqual(r["rule"], "RESP-OTH-1")
+
+    def test_label_rows_carry_the_narrative_basis(self):
+        rep = report(sv_movement="stopped", raw={"Narrative": "The rider opened the door."})
+        row = resp.build_labels([rep], "r1")[0]
+        self.assertEqual((row["basis"], row["rule"], row["label"]), ("narrative", "RESP-NAR-1", "indeterminate"))
+
+    def test_rule_description_lists_the_cues(self):
+        rule = next(r for r in resp.RULES if r["id"] == "RESP-NAR-1")
+        for name in ("opened the door", "dooring", "exiting the vehicle", "exited the vehicle", "passenger exit"):
+            self.assertIn(name, rule["description"])
 
 
 class BuildLabelsTests(unittest.TestCase):
@@ -350,6 +432,7 @@ class OutputTests(unittest.TestCase):
     def test_rules_file_lists_rules_and_labels(self):
         data = self.out["responsibility_rules.json"]
         self.assertEqual(data["rules"], resp.RULES)
+        self.assertEqual(data["retired_rules"], resp.RETIRED_RULES)
         self.assertEqual(data["label_set"], resp.LABEL_SET)
         self.assertEqual([l["label"] for l in data["labels"]], list(resp.LABELS))
         self.assertIn("driver_or_system", data["agent_hints"])

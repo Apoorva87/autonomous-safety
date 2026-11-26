@@ -237,3 +237,24 @@ Pipeline = source → golden DB. Site(s) = read-only consumers, so new chart tab
   exact text it judged; built in Task 4b, replacing the earlier `report_id` sketch). Structured inputs are retained so a first pass needs no LLM: SV/CP contact areas
   (struck from behind/side), SV/CP pre-crash movement, SV speed, "ADS/ADAS engaged", road type, "crash with",
   and the narrative where not redacted. Labels are versioned and never overwrite the source data.
+
+### Responsibility lens, pass 1 (rules; label_set `responsibility_rules_v1`)
+
+An inference, never a finding of fault: NHTSA records none. One label per current report, written to `labels`
+(extra columns `rule`, `confidence`, `basis`, `agent_hint`), exported as `responsibility.json`,
+`responsibility_rules.json` and `responsibility_audit.json`. Labels: `other_party`, `subject_vehicle_initiated`,
+`indeterminate`. First match wins:
+
+- RESP-OTH-1 (high) SV stopped or parked with a known SV contact; RESP-OTH-2 (high) rear-only contact with a known
+  SV movement other than backing; RESP-OTH-4 (medium) rear-only contact with an unclear SV movement; RESP-OTH-3
+  (medium) partner maneuvering while the SV goes straight or is stopped, contact not front-only. All of these
+  require the crash partner to be another road user (not a fixed object, pole, tree or animal).
+- RESP-IND-2 a lane departure that conflicts with the other fields (rear-only contact, or a wrong-way or
+  opposing-lane partner) is indeterminate. RESP-SUB-1 (high) lane departure; RESP-SUB-2 (high) fixed object, pole,
+  tree or animal while moving; RESP-SUB-3 (medium) front-only contact with a stopped or parked partner while moving.
+- RESP-NAR-1 (basis `narrative`, readable narratives only): where OTH-1 or SUB-3 would apply but the narrative
+  mentions a rider opening a door or exiting, the label is indeterminate. RESP-IND-4: an SV maneuver with no other
+  rule is indeterminate. RESP-IND-1 missing or unknown movement or contact; RESP-IND-3 no rule matches.
+- RESP-SUB-4 (low) was retired in rules version 2: it disagreed with narrative cues in 27 of 30 comparable reports.
+- Level 2 programs (tesla_l2, gm_supercruise, other_l2) cannot separate driver from system: their own-motion label
+  carries `agent_hint` `driver_or_system` and the rationale names neither.
