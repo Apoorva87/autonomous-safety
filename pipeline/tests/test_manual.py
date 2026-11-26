@@ -1,6 +1,7 @@
 import csv
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 from pipeline import manual
@@ -57,6 +58,7 @@ INVESTIGATION = {
 }
 EVENT = {
     "date": "2025-06-16",
+    "date_precision": "day",
     "company": "all",
     "program": "",
     "type": "regulatory",
@@ -108,13 +110,13 @@ class ManualLoadTests(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def load(self):
+    def load(self, today=None):
         self.fx.write(self.dir)
-        return manual.load(self.dir)
+        return manual.load(self.dir, today=today)
 
-    def assertRaisesManual(self, *needles):
+    def assertRaisesManual(self, *needles, today=None):
         with self.assertRaises(manual.ManualDataError) as ctx:
-            self.load()
+            self.load(today=today)
         msg = str(ctx.exception)
         for needle in needles:
             self.assertIn(needle, msg)
@@ -197,6 +199,35 @@ class ManualLoadTests(unittest.TestCase):
                 else:
                     self.assertRaisesManual("exposure.csv", "period")
 
+    def test_exposure_period_more_than_a_month_ahead_raises(self):
+        today = date(2026, 11, 26)
+        cases = [
+            ("year", "2026", True),
+            ("year", "2027", False),
+            ("quarter", "2026-Q4", True),
+            ("quarter", "2027-Q1", False),
+            ("month", "2026-12", True),
+            ("month", "2027-01", False),
+            ("cumulative_to", "2026-12-31", True),
+            ("cumulative_to", "2027-01-01", False),
+        ]
+        for ptype, period, ok in cases:
+            with self.subTest(period_type=ptype, period=period):
+                self.fx.tables["exposure"][0].update(period_type=ptype, period=period)
+                if ok:
+                    self.load(today=today)
+                else:
+                    self.assertRaisesManual("exposure.csv", "period", period, today=today)
+
+    def test_future_guard_defaults_to_today(self):
+        self.fx.tables["exposure"][0].update(period_type="year", period="2999")
+        self.assertRaisesManual("exposure.csv", "2999")
+
+    def test_exposure_recall_units_metric_ok(self):
+        self.fx.tables["exposure"][0].update(metric="recall_units", value="444")
+        data = self.load()
+        self.assertEqual(data["exposure"][0]["metric"], "recall_units")
+
     def test_exposure_program_must_belong_to_company(self):
         self.fx.tables["exposure"][0]["program"] = "tesla_l2"
         self.assertRaisesManual("exposure.csv", "tesla_l2")
@@ -263,6 +294,13 @@ class ManualLoadTests(unittest.TestCase):
         self.fx.tables["company_reported"][0]["period"] = "Q3 2024"
         self.assertRaisesManual("company_reported.csv", "period")
 
+    def test_company_reported_period_more_than_a_month_ahead_raises(self):
+        today = date(2026, 11, 26)
+        self.fx.tables["company_reported"][0]["period"] = "2027-Q1"
+        self.assertRaisesManual("company_reported.csv", "2027-Q1", today=today)
+        self.fx.tables["company_reported"][0]["period"] = "2026-Q4"
+        self.load(today=today)
+
     # -------------------------------------------------------------- sources
     def test_duplicate_source_id_raises(self):
         self.fx.tables["sources"].append(dict(SOURCE))
@@ -302,6 +340,12 @@ class ManualLoadTests(unittest.TestCase):
         self.fx.tables["investigations"][0].update(status="open", closed="2025-12-01")
         self.assertRaisesManual("investigations.csv", "closed")
 
+    def test_investigation_closed_before_opened_raises(self):
+        self.fx.tables["investigations"][0].update(status="closed", closed="2025-10-06")
+        self.assertRaisesManual("investigations.csv", "before opened")
+        self.fx.tables["investigations"][0].update(closed="2025-10-07")
+        self.load()
+
     def test_investigation_duplicate_id_raises(self):
         self.fx.tables["investigations"].append(dict(INVESTIGATION))
         self.assertRaisesManual("investigations.csv", "duplicate")
@@ -329,6 +373,25 @@ class ManualLoadTests(unittest.TestCase):
     def test_event_unknown_source_raises(self):
         self.fx.tables["events"][0]["source_id"] = "nope"
         self.assertRaisesManual("events.csv", "nope")
+
+    def test_event_date_precision_values(self):
+        cases = [
+            ("day", "2025-06-16", True),
+            ("month", "2026-01-01", True),
+            ("month", "2026-01-15", False),
+            ("year", "2023-01-01", True),
+            ("year", "2023-06-01", False),
+            ("week", "2025-06-16", False),
+            ("", "2025-06-16", False),
+        ]
+        for precision, day, ok in cases:
+            with self.subTest(date_precision=precision, date=day):
+                self.fx.tables["events"][0].update(date_precision=precision, date=day)
+                if ok:
+                    data = self.load()
+                    self.assertEqual(data["events"][0]["date_precision"], precision)
+                else:
+                    self.assertRaisesManual("events.csv", "date_precision")
 
     # -------------------------------------------------------------- cadence
     def test_cadence_days_must_be_positive_int(self):
@@ -397,6 +460,42 @@ class CuratedDataTests(unittest.TestCase):
     def test_every_company_has_exposure(self):
         companies = {r["company"] for r in self.data["exposure"]}
         self.assertEqual(companies, {"tesla", "gm", "waymo", "zoox"})
+
+    def test_no_recall_count_under_fleet_or_subscriber_metrics(self):
+        # A recall's "potential units affected" counts vehicles on the affected
+        # software, not the fleet in service or paying subscribers.
+        for row in self.data["exposure"]:
+            if any(s.startswith("nhtsa_flat_rcl") for s in row["source_ids"]):
+                with self.subTest(row=(row["company"], row["period"], row["metric"])):
+                    self.assertNotIn(row["metric"], ("subscribers", "active_vehicles"))
+
+    def test_recall_populations_are_recall_units(self):
+        rows = {(r["company"], r["period"]): r for r in self.data["exposure"]
+                if r["metric"] == "recall_units"}
+        self.assertEqual(rows[("tesla", "2023-12-12")]["value"], 2031220)
+        self.assertEqual(rows[("tesla", "2023-02-15")]["value"], 362758)
+        self.assertEqual(rows[("waymo", "2026-11-20")]["value"], 4488)
+        for row in rows.values():
+            self.assertEqual(row["kind"], "reported")
+            self.assertEqual(row["source_ids"], ["nhtsa_flat_rcl"])
+            self.assertIn("potential units affected", row["method_note"])
+
+    def test_month_only_events_are_marked(self):
+        precision = {(e["date"], e["company"], e["type"]): e["date_precision"]
+                     for e in self.data["events"]}
+        for key in [("2023-01-01", "tesla", "reporting_change"),
+                    ("2026-01-01", "tesla", "launch"),
+                    ("2026-04-01", "tesla", "launch"),
+                    ("2026-07-01", "tesla", "launch")]:
+            self.assertEqual(precision[key], "month", key)
+        self.assertEqual(precision[("2025-06-16", "all", "reporting_change")], "day")
+
+    def test_third_amended_issue_date_cites_the_order(self):
+        issued = [e for e in self.data["events"] if e["date"] == "2025-04-24"]
+        self.assertEqual(len(issued), 1)
+        self.assertIn("nhtsa_sgo_third_amended", issued[0]["source_ids"])
+        sources = {s["source_id"]: s for s in self.data["sources"]}
+        self.assertEqual(sources["nhtsa_sgo_third_amended"]["published"], "2025-04-24")
 
 
 if __name__ == "__main__":

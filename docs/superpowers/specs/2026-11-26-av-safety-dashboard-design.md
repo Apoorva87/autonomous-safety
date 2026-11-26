@@ -100,11 +100,12 @@ pipeline/            Python 3.9+, standard library only (runs locally and in Act
   aggregate.py       metrics per company × program × period → site/public/data/*.json
 data/raw/            latest raw CSVs (git history keeps every prior month)
 data/manual/         hand-curated, every row sourced:
-  exposure.csv       company, program, period, metric(miles|active_vehicles|subscribers|cum_miles),
-                     value, kind(reported|derived|estimate), source_id, method_note
+  exposure.csv       company, program, period, metric(miles|active_vehicles|subscribers|cum_miles|
+                     recall_units), value, kind(reported|derived|estimate), source_id, method_note
+                     (recall_units = a recall's "potential units affected"; never a fleet count)
   sources.csv        source_id, publisher, title, url, published, date_range, methodology, caveats
   investigations.csv ODI investigation id, company, opened, status, scope, url
-  events.csv         timeline annotations (Cruise permit suspension 2023-10, SGO amendment
+  events.csv         timeline annotations, date_precision(day|month|year) (Cruise permit suspension 2023-10, SGO amendment
                      2025-06-16, Tesla Robotaxi launch 2025-06, etc.)
 site/                Vite + React + TypeScript; ECharts (2D, dual axis, sankey, heatmap,
                      parallel coords) + deck.gl (WebGL crash cloud, city columns on a MapLibre basemap)

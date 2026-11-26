@@ -6,18 +6,25 @@ load() refuses the whole set if anything does not check out. Tables:
 
   sources.csv             source registry; every other table cites it
   exposure.csv            denominators (miles, vehicles, subscribers) exactly
-                          as disclosed, typed reported | derived | estimate
+                          as disclosed, typed reported | derived | estimate;
+                          a recall's "potential units affected" goes under
+                          its own metric, recall_units, never under
+                          active_vehicles or subscribers
   company_reported.csv    company-defined safety metrics (e.g. Tesla's
                           miles per crash, Waymo's benchmark reductions);
                           never to be mixed with NHTSA SGO series
   investigations.csv      NHTSA ODI investigations
-  events.csv              timeline annotations
+  events.csv              timeline annotations; date_precision (day | month
+                          | year) says how much of `date` is known
   disclosure_cadence.csv  how often each disclosure is expected (stale flags)
 
 The `region` column says what geography a figure covers: "global" (all
 markets the company counts), "north_america", a two-letter US state or "us",
 or "city:<slug>". SGO crash counts are US-only, so a denominator for them needs
 region "us" (or a global figure explicitly labelled as such).
+
+Periods may not start more than one month after the current month (a guard
+against typos such as 2062), and an investigation cannot close before it opens.
 
 `source_id` names one source. A derived or estimate exposure row may combine
 several inputs and then lists every source it used, separated by ";"; so may
@@ -64,7 +71,7 @@ COLUMNS = {
         "investigation_id", "company", "opened", "closed", "status", "type",
         "subject", "vehicles_covered", "url", "source_id",
     ),
-    "events": ("date", "company", "program", "type", "label", "source_id"),
+    "events": ("date", "date_precision", "company", "program", "type", "label", "source_id"),
     "cadence": ("company", "program", "metric", "expected_every_days", "last_period"),
 }
 
@@ -78,12 +85,13 @@ PROGRAMS_BY_COMPANY = {
 COMPANIES = tuple(PROGRAMS_BY_COMPANY)
 
 KINDS = ("reported", "derived", "estimate")
-EXPOSURE_METRICS = ("miles", "active_vehicles", "subscribers", "cum_miles")
+EXPOSURE_METRICS = ("miles", "active_vehicles", "subscribers", "cum_miles", "recall_units")
 PERIOD_TYPES = ("year", "quarter", "month", "cumulative_to")
 SOURCE_TYPES = ("primary", "secondary")
 INVESTIGATION_TYPES = ("PE", "EA", "RQ", "DP", "AQ")
 INVESTIGATION_STATUSES = ("open", "closed")
 EVENT_TYPES = ("regulatory", "launch", "suspension", "recall", "reporting_change", "other")
+DATE_PRECISIONS = ("day", "month", "year")
 
 _NUMBER = re.compile(r"-?\d+(\.\d+)?")
 _SOURCE_ID = re.compile(r"[a-z0-9_]+")
@@ -133,6 +141,21 @@ def _period_ok(period, period_type):
     if period_type == "cumulative_to":
         return _is_day(period)
     return False
+
+
+def _period_start(period, period_type):
+    """(year, month) of the first month a valid period covers."""
+    year = int(period[:4])
+    if period_type == "year":
+        return year, 1
+    if period_type == "quarter":
+        return year, 3 * (int(period[-1]) - 1) + 1
+    return year, int(period[5:7])
+
+
+def _latest_start(today):
+    """The month after today's: the latest month a period may start in."""
+    return (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
 
 
 def _any_period_ok(text):
@@ -242,11 +265,16 @@ def _sources(rows):
     return out
 
 
-def _period_fields(ctx, row):
+def _period_fields(ctx, row, latest):
     if row["period_type"] not in PERIOD_TYPES:
         ctx.fail(f"period_type {row['period_type']!r} must be one of {PERIOD_TYPES}")
     if not _period_ok(row["period"], row["period_type"]):
         ctx.fail(f"period {row['period']!r} does not match period_type {row['period_type']!r}")
+    if _period_start(row["period"], row["period_type"]) > latest:
+        ctx.fail(
+            f"period {row['period']!r} starts after {latest[0]:04d}-{latest[1]:02d}, more than "
+            "a month ahead of today; check for a typo"
+        )
     if not _REGION.fullmatch(row["region"]):
         ctx.fail(
             f"region {row['region']!r} must be 'global', 'north_america', a 2-letter code "
@@ -254,11 +282,11 @@ def _period_fields(ctx, row):
         )
 
 
-def _exposure(rows, known):
+def _exposure(rows, known, latest):
     out, seen = [], set()
     for ctx, row in rows:
         _company_program(ctx, row)
-        _period_fields(ctx, row)
+        _period_fields(ctx, row, latest)
         if row["metric"] not in EXPOSURE_METRICS:
             ctx.fail(f"metric {row['metric']!r} must be one of {EXPOSURE_METRICS}")
         if row["kind"] not in KINDS:
@@ -276,11 +304,11 @@ def _exposure(rows, known):
     return out
 
 
-def _company_reported(rows, known):
+def _company_reported(rows, known, latest):
     out, seen = [], set()
     for ctx, row in rows:
         _company_program(ctx, row)
-        _period_fields(ctx, row)
+        _period_fields(ctx, row, latest)
         _require(ctx, row, "metric", "unit")
         if not _METRIC_SLUG.fullmatch(row["metric"]):
             ctx.fail(f"metric {row['metric']!r} must be lowercase letters, digits and '_'")
@@ -317,6 +345,8 @@ def _investigations(rows, known):
             ctx.fail(f"status closed needs a closed date (YYYY-MM-DD), got {closed!r}")
         if status == "open" and closed:
             ctx.fail(f"status open but closed date {closed!r} is set")
+        if closed and closed < row["opened"]:
+            ctx.fail(f"closed {closed!r} is before opened {row['opened']!r}")
         if not row["url"].startswith(("https://", "http://")):
             ctx.fail(f"url {row['url']!r} must start with http:// or https://")
         vehicles = row["vehicles_covered"]
@@ -336,6 +366,13 @@ def _events(rows, known):
         _require(ctx, row, "label")
         if not _is_day(row["date"]):
             ctx.fail(f"date {row['date']!r} must be YYYY-MM-DD")
+        precision = row["date_precision"]
+        if precision not in DATE_PRECISIONS:
+            ctx.fail(f"date_precision {precision!r} must be one of {DATE_PRECISIONS}")
+        if precision == "month" and not row["date"].endswith("-01"):
+            ctx.fail(f"date_precision month needs a date on the 1st, got {row['date']!r}")
+        if precision == "year" and not row["date"].endswith("-01-01"):
+            ctx.fail(f"date_precision year needs a date on January 1st, got {row['date']!r}")
         _company_program(ctx, row, allow_all=True, allow_blank_program=True)
         if row["type"] not in EVENT_TYPES:
             ctx.fail(f"type {row['type']!r} must be one of {EVENT_TYPES}")
@@ -365,15 +402,21 @@ def _cadence(rows):
 
 
 # --------------------------------------------------------------------- API
-def load(manual_dir=None):
-    """Read and validate every manual table; raise ManualDataError on any problem."""
+def load(manual_dir=None, today=None):
+    """Read and validate every manual table; raise ManualDataError on any problem.
+
+    `today` (a date, default date.today()) sets the future-period guard.
+    """
     directory = Path(manual_dir) if manual_dir is not None else config.MANUAL_DIR
+    latest = _latest_start(today or date.today())
     sources = _sources(_read(directory, "sources"))
     known = {s["source_id"] for s in sources}
     return {
         "sources": sources,
-        "exposure": _exposure(_read(directory, "exposure"), known),
-        "company_reported": _company_reported(_read(directory, "company_reported"), known),
+        "exposure": _exposure(_read(directory, "exposure"), known, latest),
+        "company_reported": _company_reported(
+            _read(directory, "company_reported"), known, latest
+        ),
         "investigations": _investigations(_read(directory, "investigations"), known),
         "events": _events(_read(directory, "events"), known),
         "cadence": _cadence(_read(directory, "cadence")),

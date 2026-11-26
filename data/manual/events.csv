@@ -1,48 +1,48 @@
-date,company,program,type,label,source_id
-2021-06-29,all,,regulatory,NHTSA issues Standing General Order 2021-01 (crash reporting for ADS and L2 ADAS),nhtsa_pr_20210629
-2021-08-12,all,,regulatory,First Amended SGO takes effect (dated 2021-08-05),nhtsa_sgo_first_amended
-2023-05-15,all,,regulatory,Second Amended SGO takes effect (issued 2023-04-05),nhtsa_sgo_ded_archive
-2025-04-24,all,,regulatory,Third Amended SGO issued,nhtsa_sgo_page
-2025-06-16,all,,reporting_change,Third Amended SGO takes effect: new reporting thresholds and data schema (structural break),nhtsa_sgo_page
-2023-10-02,gm,gm_cruise_ads,other,Cruise robotaxi strikes and drags a pedestrian in San Francisco after a hit-and-run by another vehicle,cruise_blog_20240125
-2023-10-24,gm,gm_cruise_ads,suspension,CA DMV suspends Cruise deployment and driverless testing permits,ca_dmv_cruise_20231024
-2024-12-10,gm,gm_cruise_ads,suspension,GM says it will no longer fund Cruise robotaxi development; Cruise and GM teams to combine,gm_8k_20241210
-2025-06-22,tesla,tesla_robotaxi,launch,Tesla Robotaxi rides begin in Austin with a safety monitor in the passenger seat,tesla_update_q2_2025;techcrunch_20250622
-2025-07-31,tesla,tesla_robotaxi,launch,Tesla Bay Area ride-hailing via Robotaxi app with a safety driver (date of news report; Tesla gives Q3 only),tesla_update_q3_2025;electrek_20250731
-2026-01-01,tesla,tesla_robotaxi,launch,Tesla begins removing safety monitors from some Austin customer rides (January 2026; Tesla gives month only),tesla_update_q4_2025
-2026-04-01,tesla,tesla_robotaxi,launch,Tesla launches unsupervised Robotaxi rides in Dallas and Houston (April 2026; month only),tesla_update_q1_2026
-2026-07-01,tesla,tesla_robotaxi,launch,"Tesla launches unsupervised rides in Miami, Orlando and Tampa (July 2026; month only)",tesla_update_q2_2026
-2026-09-03,tesla,tesla_robotaxi,launch,Tesla begins commercial deployment of Cybercab in Austin (per NHTSA AQ26002),nhtsa_flat_inv;nhtsa_odi_aq26002_open
-2023-01-01,tesla,tesla_l2,reporting_change,Tesla restates all Vehicle Safety Report quarters (January 2023 update; month only),tesla_vsr_wb_20251030
-2025-11-14,tesla,tesla_l2,reporting_change,Tesla replaces the quarterly Vehicle Safety Report with the rolling-12-month FSD (Supervised) report (first archived capture; launch date not stated),tesla_fsd_vsr_wb_20251114
-2020-10-08,waymo,waymo_ads,launch,Waymo opens fully driverless service to the public in Phoenix,waymo_blog_20201008
-2024-06-25,waymo,waymo_ads,launch,Waymo One open to everyone in San Francisco,waymo_blog_20240625
-2024-09-05,waymo,waymo_ads,reporting_change,Waymo publishes first Safety Impact data hub release (data through June 2024),waymo_hub_release_notes_20261002
-2024-11-12,waymo,waymo_ads,launch,Waymo One open to all in Los Angeles,waymo_blog_20241112
-2026-01-22,waymo,waymo_ads,launch,Waymo welcomes first public riders in Miami,waymo_blog_20260122
-2026-02-24,waymo,waymo_ads,launch,"Waymo welcomes first public riders in Dallas, Houston, San Antonio and Orlando",waymo_blog_20260224
-2026-04-07,waymo,waymo_ads,launch,Waymo welcomes first public riders in Nashville,waymo_blog_20260407
-2026-09-01,waymo,waymo_ads,launch,"Waymo welcomes first public riders in Denver, San Diego and Tampa (14 cities)",waymo_blog_20260901
-2026-09-14,waymo,waymo_ads,launch,Waymo welcomes first public riders in Las Vegas,waymo_blog_20260914
-2025-08-04,zoox,zoox_ads,regulatory,"NHTSA grants Zoox an FMVSS exemption (demonstration, 49 USC 30114) for its purpose-built robotaxis; AQ23001 closed",nhtsa_flat_inv;nhtsa_odi_aq23001_close
-2025-09-10,zoox,zoox_ads,launch,Zoox launches public robotaxi service on the Las Vegas Strip,zoox_journal_las_vegas
-2025-11-18,zoox,zoox_ads,launch,Zoox welcomes first public riders in San Francisco (waitlist),zoox_journal_sf
-2022-01-27,tesla,tesla_l2,recall,"Recall 22V037: FSD Beta 'rolling stop' removed (53,822 units)",nhtsa_flat_rcl
-2023-02-15,tesla,tesla_l2,recall,"Recall 23V085: FSD Beta may act unsafe around intersections (362,758 units)",nhtsa_flat_rcl
-2023-12-12,tesla,tesla_l2,recall,"Recall 23V838: Autosteer controls may not prevent driver misuse (2,031,220 units)",nhtsa_flat_rcl
-2022-08-29,gm,gm_cruise_ads,recall,Recall 22E072: Cruise ADS unprotected-left prediction (80 units),nhtsa_flat_rcl
-2023-04-03,gm,gm_cruise_ads,recall,Recall 23E029: Cruise ADS articulated-vehicle prediction (300 units),nhtsa_flat_rcl
-2023-11-07,gm,gm_cruise_ads,recall,Recall 23E086: Cruise post-collision pullover behaviour (950 units),nhtsa_flat_rcl
-2024-08-09,gm,gm_cruise_ads,recall,"Recall 24E067: Cruise unexpected braking (1,194 units)",nhtsa_flat_rcl
-2024-02-13,waymo,waymo_ads,recall,Recall 24E013: Waymo towed-vehicle prediction (444 units),nhtsa_flat_rcl
-2024-06-10,waymo,waymo_ads,recall,Recall 24E049: Waymo pole/similar-object avoidance (672 units),nhtsa_flat_rcl
-2025-05-12,waymo,waymo_ads,recall,"Recall 25E034: Waymo gates, chains and roadway barriers (1,212 units)",nhtsa_flat_rcl
-2025-12-08,waymo,waymo_ads,recall,"Recall 25E084: Waymo passing stopped school buses (3,067 units)",nhtsa_flat_rcl
-2026-05-01,waymo,waymo_ads,recall,"Recall 26E026: Waymo standing water on higher-speed roads (3,791 units)",nhtsa_flat_rcl
-2026-06-12,waymo,waymo_ads,recall,"Recall 26E035: Waymo closed freeway construction zones (3,871 units)",nhtsa_flat_rcl
-2026-11-20,waymo,waymo_ads,recall,"Recall 26E086: Waymo closed freeway lanes (also 26E087, traffic-control stops) (4,488 units)",nhtsa_flat_rcl
-2025-03-13,zoox,zoox_ads,recall,Recall 25E019: Zoox unnecessary hard braking (258 units),nhtsa_flat_rcl
-2025-04-25,zoox,zoox_ads,recall,Recall 25E029: Zoox prediction of slowly approaching vehicles (270 units),nhtsa_flat_rcl
-2025-05-22,zoox,zoox_ads,recall,Recall 25E037: Zoox moving after failing to detect a person next to the vehicle (270 units),nhtsa_flat_rcl
-2025-12-19,zoox,zoox_ads,recall,Recall 25E090: Zoox crossing the center line near intersections (332 units),nhtsa_flat_rcl
-2026-07-10,zoox,zoox_ads,recall,Recall 26E044: Zoox failing to detect heavy smoke (105 units),nhtsa_flat_rcl
+date,date_precision,company,program,type,label,source_id
+2021-06-29,day,all,,regulatory,NHTSA issues Standing General Order 2021-01 (crash reporting for ADS and L2 ADAS),nhtsa_pr_20210629
+2021-08-12,day,all,,regulatory,First Amended SGO takes effect (dated 2021-08-05),nhtsa_sgo_first_amended
+2023-05-15,day,all,,regulatory,Second Amended SGO takes effect (issued 2023-04-05),nhtsa_sgo_ded_archive
+2025-04-24,day,all,,regulatory,Third Amended SGO issued,nhtsa_sgo_third_amended
+2025-06-16,day,all,,reporting_change,Third Amended SGO takes effect: new reporting thresholds and data schema (structural break),nhtsa_sgo_page;nhtsa_sgo_third_amended
+2023-10-02,day,gm,gm_cruise_ads,other,Cruise robotaxi strikes and drags a pedestrian in San Francisco after a hit-and-run by another vehicle,cruise_blog_20240125
+2023-10-24,day,gm,gm_cruise_ads,suspension,CA DMV suspends Cruise deployment and driverless testing permits,ca_dmv_cruise_20231024
+2024-12-10,day,gm,gm_cruise_ads,suspension,GM says it will no longer fund Cruise robotaxi development; Cruise and GM teams to combine,gm_8k_20241210
+2025-06-22,day,tesla,tesla_robotaxi,launch,Tesla Robotaxi rides begin in Austin with a safety monitor in the passenger seat,tesla_update_q2_2025;techcrunch_20250622
+2025-07-31,day,tesla,tesla_robotaxi,launch,Tesla Bay Area ride-hailing via Robotaxi app with a safety driver (date of news report; Tesla gives Q3 only),tesla_update_q3_2025;electrek_20250731
+2026-01-01,month,tesla,tesla_robotaxi,launch,Tesla begins removing safety monitors from some Austin customer rides (January 2026; Tesla gives month only),tesla_update_q4_2025
+2026-04-01,month,tesla,tesla_robotaxi,launch,Tesla launches unsupervised Robotaxi rides in Dallas and Houston (April 2026; month only),tesla_update_q1_2026
+2026-07-01,month,tesla,tesla_robotaxi,launch,"Tesla launches unsupervised rides in Miami, Orlando and Tampa (July 2026; month only)",tesla_update_q2_2026
+2026-09-03,day,tesla,tesla_robotaxi,launch,Tesla begins commercial deployment of Cybercab in Austin (per NHTSA AQ26002),nhtsa_flat_inv;nhtsa_odi_aq26002_open
+2023-01-01,month,tesla,tesla_l2,reporting_change,Tesla restates all Vehicle Safety Report quarters (January 2023 update; month only),tesla_vsr_wb_20251030
+2025-11-14,day,tesla,tesla_l2,reporting_change,Tesla replaces the quarterly Vehicle Safety Report with the rolling-12-month FSD (Supervised) report (first archived capture; launch date not stated),tesla_fsd_vsr_wb_20251114
+2020-10-08,day,waymo,waymo_ads,launch,Waymo opens fully driverless service to the public in Phoenix,waymo_blog_20201008
+2024-06-25,day,waymo,waymo_ads,launch,Waymo One open to everyone in San Francisco,waymo_blog_20240625
+2024-09-05,day,waymo,waymo_ads,reporting_change,Waymo publishes first Safety Impact data hub release (data through June 2024),waymo_hub_release_notes_20261002
+2024-11-12,day,waymo,waymo_ads,launch,Waymo One open to all in Los Angeles,waymo_blog_20241112
+2026-01-22,day,waymo,waymo_ads,launch,Waymo welcomes first public riders in Miami,waymo_blog_20260122
+2026-02-24,day,waymo,waymo_ads,launch,"Waymo welcomes first public riders in Dallas, Houston, San Antonio and Orlando",waymo_blog_20260224
+2026-04-07,day,waymo,waymo_ads,launch,Waymo welcomes first public riders in Nashville,waymo_blog_20260407
+2026-09-01,day,waymo,waymo_ads,launch,"Waymo welcomes first public riders in Denver, San Diego and Tampa (14 cities)",waymo_blog_20260901
+2026-09-14,day,waymo,waymo_ads,launch,Waymo welcomes first public riders in Las Vegas,waymo_blog_20260914
+2025-08-04,day,zoox,zoox_ads,regulatory,"NHTSA grants Zoox an FMVSS exemption (demonstration, 49 USC 30114) for its purpose-built robotaxis; AQ23001 closed",nhtsa_flat_inv;nhtsa_odi_aq23001_close
+2025-09-10,day,zoox,zoox_ads,launch,Zoox launches public robotaxi service on the Las Vegas Strip,zoox_journal_las_vegas
+2025-11-18,day,zoox,zoox_ads,launch,Zoox welcomes first public riders in San Francisco (waitlist),zoox_journal_sf
+2022-01-27,day,tesla,tesla_l2,recall,"Recall 22V037: FSD Beta 'rolling stop' removed (53,822 units)",nhtsa_flat_rcl
+2023-02-15,day,tesla,tesla_l2,recall,"Recall 23V085: FSD Beta may act unsafe around intersections (362,758 units)",nhtsa_flat_rcl
+2023-12-12,day,tesla,tesla_l2,recall,"Recall 23V838: Autosteer controls may not prevent driver misuse (2,031,220 units)",nhtsa_flat_rcl
+2022-08-29,day,gm,gm_cruise_ads,recall,Recall 22E072: Cruise ADS unprotected-left prediction (80 units),nhtsa_flat_rcl
+2023-04-03,day,gm,gm_cruise_ads,recall,Recall 23E029: Cruise ADS articulated-vehicle prediction (300 units),nhtsa_flat_rcl
+2023-11-07,day,gm,gm_cruise_ads,recall,Recall 23E086: Cruise post-collision pullover behaviour (950 units),nhtsa_flat_rcl
+2024-08-09,day,gm,gm_cruise_ads,recall,"Recall 24E067: Cruise unexpected braking (1,194 units)",nhtsa_flat_rcl
+2024-02-13,day,waymo,waymo_ads,recall,Recall 24E013: Waymo towed-vehicle prediction (444 units),nhtsa_flat_rcl
+2024-06-10,day,waymo,waymo_ads,recall,Recall 24E049: Waymo pole/similar-object avoidance (672 units),nhtsa_flat_rcl
+2025-05-12,day,waymo,waymo_ads,recall,"Recall 25E034: Waymo gates, chains and roadway barriers (1,212 units)",nhtsa_flat_rcl
+2025-12-08,day,waymo,waymo_ads,recall,"Recall 25E084: Waymo passing stopped school buses (3,067 units)",nhtsa_flat_rcl
+2026-05-01,day,waymo,waymo_ads,recall,"Recall 26E026: Waymo standing water on higher-speed roads (3,791 units)",nhtsa_flat_rcl
+2026-06-12,day,waymo,waymo_ads,recall,"Recall 26E035: Waymo closed freeway construction zones (3,871 units)",nhtsa_flat_rcl
+2026-11-20,day,waymo,waymo_ads,recall,"Recall 26E086: Waymo closed freeway lanes (also 26E087, traffic-control stops) (4,488 units)",nhtsa_flat_rcl
+2025-03-13,day,zoox,zoox_ads,recall,Recall 25E019: Zoox unnecessary hard braking (258 units),nhtsa_flat_rcl
+2025-04-25,day,zoox,zoox_ads,recall,Recall 25E029: Zoox prediction of slowly approaching vehicles (270 units),nhtsa_flat_rcl
+2025-05-22,day,zoox,zoox_ads,recall,Recall 25E037: Zoox moving after failing to detect a person next to the vehicle (270 units),nhtsa_flat_rcl
+2025-12-19,day,zoox,zoox_ads,recall,Recall 25E090: Zoox crossing the center line near intersections (332 units),nhtsa_flat_rcl
+2026-07-10,day,zoox,zoox_ads,recall,Recall 26E044: Zoox failing to detect heavy smoke (105 units),nhtsa_flat_rcl

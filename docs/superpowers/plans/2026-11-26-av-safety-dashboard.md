@@ -101,7 +101,7 @@
 
 **Interfaces:**
 - Produces: `manual.load() -> {"sources": [...], "exposure": [...], "investigations": [...], "events": [...], "cadence": [...]}`, raising `ManualDataError` on a missing `source_id`, bad `kind`, a non-numeric value, or a duplicate (company, program, period, metric, kind).
-- `exposure.csv` columns: `company,program,period,period_type(year|quarter|month|cumulative_to),metric(miles|active_vehicles|subscribers|cum_miles),value,kind,source_id,method_note`.
+- `exposure.csv` columns: `company,program,period,period_type(year|quarter|month|cumulative_to),metric(miles|active_vehicles|subscribers|cum_miles|recall_units),value,kind,source_id,method_note`. `recall_units` holds a recall's "potential units affected"; recall counts never go under `active_vehicles` or `subscribers`.
 - `cadence.csv`: `company,program,metric,expected_every_days,last_period`, used for stale warnings.
 
 - [ ] Step 1: Tests: a fixture exposure row with an unknown `source_id` raises; `kind="guess"` raises; a valid fixture loads.
