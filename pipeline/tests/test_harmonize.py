@@ -229,6 +229,56 @@ class HarmonizeTests(unittest.TestCase):
         self.assertEqual(r["model_year"], 2023)
         self.assertEqual(r["speed_mph"], 12)
 
+    def test_other_file_unknown_engagement_follows_ads_filers(self):
+        # Nuro Test, Inc. has a report in an ADS-kind file; the OTHER row with
+        # unknown engagement therefore maps to other_ads.
+        self.assertEqual(self.by_id["O-1"]["file"], "OTHER")
+        self.assertEqual(self.by_id["O-1"]["program"], "other_ads")
+        # No ADS-file reports for this entity: default L2.
+        self.assertEqual(self.by_id["O-2"]["program"], "other_l2")
+        # An explicit engaged value always wins.
+        self.assertEqual(self.by_id["O-3"]["program"], "other_l2")
+
+    def test_ads_filer_fallback_does_not_apply_to_named_companies(self):
+        ads = frozenset({"Tesla, Inc.", "Waymo LLC"})
+        self.assertEqual(
+            harmonize.company_and_program("Tesla, Inc.", "OTHER", "Unknown, see Narrative", ads),
+            ("tesla", "tesla_l2"),
+        )
+        self.assertEqual(
+            harmonize.company_and_program("Acme AV", "OTHER", "", frozenset({"Acme AV"})),
+            ("other", "other_ads"),
+        )
+        self.assertEqual(
+            harmonize.company_and_program("Acme AV", "OTHER", "", frozenset()),
+            ("other", "other_l2"),
+        )
+
+    def test_make_and_model_case_normalized(self):
+        # TESLA x2 beats Tesla x1; I-PACE x3 beats I-Pace x1; "Model 3" x2 beats "model 3" x1.
+        for rid in ("T-100", "T-200", "T-400"):
+            self.assertEqual(self.by_id[rid]["make"], "TESLA", rid)
+            self.assertEqual(self.by_id[rid]["model"], "Model 3", rid)
+        self.assertEqual(self.by_id["GM-1"]["model"], "I-PACE")
+        self.assertEqual(self.by_id["TR-1"]["model"], "I-PACE")
+
+    def test_name_key_and_canonical_choice(self):
+        key = harmonize.name_key
+        self.assertEqual(key("I-PACE"), key("I-Pace"))
+        self.assertEqual(key("I-PACE"), key("i pace"))
+        self.assertEqual(key("  Model   3 "), key("MODEL-3"))
+        self.assertNotEqual(key("Model 3"), key("Model Y"))
+        recs = [{"make": m} for m in ("Tesla", "TESLA", "tesla", "Zoox", None)]
+        harmonize.canonicalize_names(recs, "make")
+        # Three-way tie at 1 each: alphabetical (uppercase sorts first).
+        self.assertEqual([r["make"] for r in recs], ["TESLA", "TESLA", "TESLA", "Zoox", None])
+
+    def test_placeholder_count_exposed(self):
+        self.assertEqual(harmonize.SKIPPED_PLACEHOLDERS, 1)
+        self.assertEqual(harmonize.LOAD_STATS["placeholder_rows"], 1)
+        harmonize.load_all(FIXTURES, allow_missing=True)
+        self.assertEqual(harmonize.SKIPPED_PLACEHOLDERS, 1)  # reset, not accumulated
+
     def test_missing_files_raise_unless_allowed(self):
         with self.assertRaises(FileNotFoundError):
             harmonize.load_all(FIXTURES)

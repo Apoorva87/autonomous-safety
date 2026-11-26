@@ -6,6 +6,8 @@ ID across all six files). Constants and value maps live in schema.py.
 Conventions:
 - Every string is stripped; the source pads blanks with single spaces.
 - A field that does not exist in an era is None, never imputed.
+- `submitted` is the last day of the submission month and `lag_days` has month
+  resolution, because NHTSA publishes the submission month only.
 - Categorical values are looked up in explicit maps. A label that is not in a
   map goes into schema.UNMAPPED as (field, value) and the field takes None
   (severity takes "unknown", since its enum has no None).
@@ -21,6 +23,9 @@ from . import config, schema
 
 # Counters from the last load_all() call, for the build log.
 LOAD_STATS = Counter()
+# Number of "No New or Updated Incident Reports" rows skipped by the last
+# load_all() call (reset on every call). Also in LOAD_STATS["placeholder_rows"].
+SKIPPED_PLACEHOLDERS = 0
 
 _MONTHS = {
     name: i
@@ -153,12 +158,15 @@ def _vehicle_flag(field, row, era):
 
 
 # -------------------------------------------------------------------- program
-def company_and_program(entity, kind, engaged):
+def company_and_program(entity, kind, engaged, ads_entities=frozenset()):
     """Company and program for a report.
 
     ADS/ADAS files: the file kind picks the mode (ADS or L2).
     OTHER file: the Automation System Engaged? value picks it (ADS -> ADS,
-    ADAS -> L2) and anything unknown defaults to L2.
+    ADAS -> L2). When that value is unknown, company "other" follows its
+    filing history: ADS if the entity has any report in an ADS-kind file
+    (ads_entities), otherwise L2. Named companies (Tesla, GM, Waymo, Zoox)
+    with an unknown value default to L2 and then use the program table.
     Cruise LLC is always gm_cruise_ads; Waymo and Zoox have a single program.
     """
     company = schema.COMPANY_BY_ENTITY.get(entity, "other")
@@ -170,8 +178,35 @@ def company_and_program(entity, kind, engaged):
         mode = "l2"
     else:
         mode = _cat("engaged", engaged, schema.ENGAGED_MODE, "unknown")
-        mode = "ads" if mode == "ads" else "l2"
+        if mode == "unknown":
+            mode = "ads" if company == "other" and entity in ads_entities else "l2"
     return company, schema.PROGRAM_BY_COMPANY_MODE[(company, mode)]
+
+
+# -------------------------------------------------------- make/model casing
+def name_key(text):
+    """Case-insensitive key with whitespace and hyphen runs collapsed ('I-Pace' == 'i pace')."""
+    return re.sub(r"[\s\-]+", " ", text.casefold()).strip()
+
+
+def canonicalize_names(records, field):
+    """Rewrite records[field] to one display spelling per name_key.
+
+    The spelling used most often across the records wins; ties go to the
+    alphabetically first spelling (so the result does not depend on row order).
+    """
+    counts = {}
+    for record in records:
+        value = record[field]
+        if value is not None:
+            counts.setdefault(name_key(value), Counter())[value] += 1
+    canonical = {
+        key: min(spellings.items(), key=lambda item: (-item[1], item[0]))[0]
+        for key, spellings in counts.items()
+    }
+    for record in records:
+        if record[field] is not None:
+            record[field] = canonical[name_key(record[field])]
 
 
 # ----------------------------------------------------------------- unknowns
@@ -203,11 +238,11 @@ def _version(row, era):
     return 0
 
 
-def harmonize_row(row, era, kind):
-    """Convert one source row to a Record dict."""
+def harmonize_row(row, era, kind, ads_entities=frozenset()):
+    """Convert one source row to a Record dict (ads_entities: see company_and_program)."""
     g = lambda field: _get(row, era, field)  # noqa: E731
     entity = g("entity")
-    company, program = company_and_program(entity, kind, g("engaged"))
+    company, program = company_and_program(entity, kind, g("engaged"), ads_entities)
 
     incident_ym = _month_year(g("incident_date"))
     if g("incident_date") and incident_ym is None:
@@ -283,16 +318,21 @@ def load_all(raw_dir=None, allow_missing=False):
 
     One record per Report ID: the highest Report Version across all files and
     eras wins (a report can move between files, e.g. archive_ADAS v1 to
-    current_ADAS v2). Placeholder filings are skipped. schema.UNMAPPED is
+    current_ADAS v2). Placeholder filings are skipped (counted in
+    SKIPPED_PLACEHOLDERS). Make and model spellings are unified per
+    case-insensitive name (canonicalize_names). schema.UNMAPPED is
     cleared first and then holds every unmapped (field, value) from the rows
     that became records. A missing file raises unless allow_missing is set
     (tests use that with a two-file fixture directory).
     """
+    global SKIPPED_PLACEHOLDERS
     raw_dir = Path(raw_dir if raw_dir is not None else config.RAW_DIR)
     schema.UNMAPPED.clear()
     LOAD_STATS.clear()
+    SKIPPED_PLACEHOLDERS = 0
 
     latest = {}  # report id -> (version, row, era, kind)
+    ads_entities = set()  # entities with at least one report in an ADS-kind file
     for spec in config.SGO_FILES:
         path = raw_dir / (spec["key"] + ".csv")
         if not path.exists():
@@ -303,7 +343,10 @@ def load_all(raw_dir=None, allow_missing=False):
             LOAD_STATS["rows"] += 1
             if is_placeholder(row):
                 LOAD_STATS["placeholder_rows"] += 1
+                SKIPPED_PLACEHOLDERS += 1
                 continue
+            if spec["kind"] == "ADS":
+                ads_entities.add(_clean(row.get("Reporting Entity")))
             version = _version(row, spec["era"])
             report_id = _clean(row.get("Report ID"))
             current = latest.get(report_id)
@@ -312,8 +355,11 @@ def load_all(raw_dir=None, allow_missing=False):
             if current is None or version > current[0]:
                 latest[report_id] = (version, row, spec["era"], spec["kind"])
 
-    records = [harmonize_row(row, era, kind) for _, row, era, kind in latest.values()]
+    ads_entities = frozenset(ads_entities)
+    records = [harmonize_row(row, era, kind, ads_entities) for _, row, era, kind in latest.values()]
     records.sort(key=lambda r: r["id"])
+    canonicalize_names(records, "make")
+    canonicalize_names(records, "model")
     LOAD_STATS["records"] = len(records)
     LOAD_STATS["superseded_versions"] = LOAD_STATS["rows"] - LOAD_STATS["placeholder_rows"] - len(records)
     return records
