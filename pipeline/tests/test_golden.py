@@ -15,7 +15,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pipeline import build_db, config, export_preview, golden, harmonize, manual, schema
+from pipeline import aggregate, build_db, config, golden, harmonize, manual, schema
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 EMPTY_MANUAL = {name: [] for name in manual.FILES}
@@ -46,6 +46,18 @@ def normalize(filename, report_id, **changes):
     row.update(changes)
     era, kind = era_kind(filename)
     return golden.normalize_row(row, era, kind)
+
+
+def record_crashes(records):
+    """[(representative record, report count)] per incident_key, restated over harmonize Records.
+
+    Independent of aggregate.unique_crashes (which reads golden rows), so the incidents
+    table is checked against a second implementation of the representative-report rule.
+    """
+    groups = {}
+    for r in records:
+        groups.setdefault(r["incident_key"], []).append(r)
+    return [(min(g, key=lambda r: (-golden.SEVERITY_RANK[r["severity"]], r["id"])), len(g)) for g in groups.values()]
 
 
 def copy_fixtures(directory):
@@ -565,16 +577,16 @@ class IncidentTests(FixtureCase):
     def test_incident_count_matches_unique_crashes(self):
         tables = self.build()
         records = harmonize.load_all(FIXTURES, allow_missing=True)
-        self.assertEqual(len(tables["incidents"]), len(export_preview.unique_crashes(records)))
+        self.assertEqual(len(tables["incidents"]), len(record_crashes(records)))
 
-    def test_severity_rank_agrees_with_export_preview(self):
-        self.assertEqual(golden.SEVERITY_RANK, export_preview._RANK)
+    def test_aggregate_uses_the_golden_severity_rank(self):
+        self.assertIs(aggregate._RANK, golden.SEVERITY_RANK)
 
     @unittest.skipUnless(LIVE_AVAILABLE, "raw files not present")
     def test_live_incident_count_matches_unique_crashes(self):
         tables = live_tables()
         records = harmonize.load_all(config.RAW_DIR)
-        crashes = {c[0]["id"]: c for c in export_preview.unique_crashes(records)}
+        crashes = {c[0]["id"]: c for c in record_crashes(records)}
         self.assertEqual(len(tables["incidents"]), len(crashes))
         reps = {i["representative_report_key"].split("|")[0]: i for i in tables["incidents"]}
         self.assertEqual(set(reps), set(crashes))

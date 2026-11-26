@@ -6,11 +6,11 @@ mileage and fleet data, which is still being researched. Every tab says so.
 
 ## Data
 
-The site reads four static JSON files from `public/data/`, produced by the Python pipeline
+The site currently reads four static JSON files from `public/data/` (the pipeline writes thirteen; see the root README), produced by the Python pipeline
 (standard library only) from the raw NHTSA CSVs in `../data/raw/`:
 
 ```bash
-npm run data        # same as: cd .. && python3 -m pipeline.export_preview
+npm run data        # same as: cd .. && python3 -m pipeline.run --offline
 ```
 
 | File | Contents |

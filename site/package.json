@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "data": "cd .. && python3 -m pipeline.export_preview",
+    "data": "cd .. && python3 -m pipeline.run --offline",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"

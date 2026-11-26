@@ -189,8 +189,18 @@ Requires Python 3.9+ (standard library only). Run from the repo root.
 ```bash
 python3 -m unittest discover -s pipeline/tests -v   # run tests
 python3 -m pipeline.fetch                           # download SGO CSVs into data/raw/
-python3 -m pipeline.build_db                        # build the golden database in data/golden/
+python3 -m pipeline.run [--offline] [--run-id ID]   # fetch, validate, build golden DB, write site/public/data/
+python3 -m pipeline.build_db                        # build the golden database only (skips the validation gate)
 ```
+
+`pipeline.run` is the one command for a refresh. It downloads into a staging directory, validates the
+files and manual tables (`pipeline/validate.py`: header drift, unmapped labels, row-count and report
+drops, a vanished entity, parse failures, duplicate report versions, unresolved sources, counts that do
+not add up) and, on any error, prints it, exits 1 and writes **nothing**. Otherwise it builds the
+golden database and writes the site files (`records`, `narratives`, `counts`, `lag`, `exposure`,
+`company_reported`, `sources`, `investigations`, `events`, `rules`, `transparency`, `meta`,
+`changelog`). Warnings (stale disclosures, new entities, >50% monthly swings) go to `meta.json` and the
+console. `--offline` reuses `data/raw/`.
 
 ## License and data terms
 
