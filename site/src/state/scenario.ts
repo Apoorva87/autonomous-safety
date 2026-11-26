@@ -56,8 +56,7 @@ export function isNonDefault(s: Scenario): boolean {
     s.windowFactor !== 1 ||
     s.lagAdjust ||
     s.countBy !== 'crashes' ||
-    s.teslaDenominator !== 'fleet' ||
-    s.subsUsShare !== DEFAULT_SCENARIO.subsUsShare && s.teslaDenominator === 'subscribers'
+    s.teslaDenominator !== 'fleet'
   );
 }
 
@@ -71,7 +70,7 @@ export function scenarioFromParams(p: URLSearchParams): Scenario {
   const s: Scenario = {
     ...DEFAULT_SCENARIO,
     estimates: { ...DEFAULT_SCENARIO.estimates },
-    windowFactor: num(p.get('wf'), 1, 0.5, 5),
+    windowFactor: num(p.get('wf'), 1, 0.1, 2),
     teslaDenominator: p.get('td') === 'subs' ? 'subscribers' : 'fleet',
     subsUsShare: num(p.get('us'), DEFAULT_SCENARIO.subsUsShare, 0.05, 1),
     lagAdjust: p.get('lag') === '1',
