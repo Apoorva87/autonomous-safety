@@ -27,6 +27,11 @@ Rules (ruling R2):
                          over LOW_CONFIDENCE_GAP_DAYS is labelled "low confidence" (kind stays estimate).
                          A period that starts before the first disclosure or ends
                          after the last one gets no row: nothing is extrapolated.
+                         Two adjacent segments whose daily rates differ by more than
+                         RATE_JUMP (3x) usually mean a rounded milestone ("more than
+                         800M"): the months overlapping the shorter of the two get
+                         RATE_JUMP_NOTE in `method` and a warning names them. Values
+                         and annual rows are unchanged.
   active_vehicles,       the mean of the observations dated inside the period (kind derived
                          when it averages several observations; a single one keeps its kind).
   subscribers            With none, the latest earlier observation is carried
@@ -48,6 +53,11 @@ from collections import defaultdict
 KIND_RANK = {"reported": 0, "derived": 1, "estimate": 2}
 CARRY_MONTHS = 12
 LOW_CONFIDENCE_GAP_DAYS = 540
+RATE_JUMP = 3  # adjacent cum_miles segments whose daily rates differ by more than this are flagged
+RATE_JUMP_NOTE = (
+    "Note: adjacent disclosure segments differ by >3\u00d7; disclosures are rounded milestones, so the monthly "
+    "split is unreliable."
+)
 FIRST_YEAR = 2019
 STOCK_METRICS = ("active_vehicles", "subscribers")
 
@@ -250,7 +260,32 @@ def _cum_miles(program, region, rows, today, warnings):
         result = interval(datetime.date(year - 1, 12, 31), datetime.date(year, 12, 31))
         if result:
             out[str(year)] = _out(program, region, "miles", str(year), *_pack(result))
+    _flag_rate_jumps(program, region, segments, out, warnings)
     return out
+
+
+def _flag_rate_jumps(program, region, segments, out, warnings):
+    """Mark the monthly rows around adjacent segments whose daily rates differ by more than RATE_JUMP."""
+    flagged = set()
+    for a, b in zip(segments, segments[1:]):
+        if not (a["valid"] and b["valid"]) or a["delta"] <= 0 or b["delta"] <= 0:
+            continue
+        rate_a = a["delta"] / (a["end"] - a["start"]).days
+        rate_b = b["delta"] / (b["end"] - b["start"]).days
+        if max(rate_a, rate_b) / min(rate_a, rate_b) <= RATE_JUMP:
+            continue
+        short = min((a, b), key=lambda s: ((s["end"] - s["start"]).days, s["start"]))
+        for y, m in _months((short["start"].year, short["start"].month), (short["end"].year, short["end"].month)):
+            period = "%04d-%02d" % (y, m)
+            if period in out:
+                flagged.add(period)
+    for period in sorted(flagged):
+        out[period]["method"] += " " + RATE_JUMP_NOTE
+    if flagged:
+        warnings.append(
+            "exposure %s/%s cum_miles: adjacent disclosure segments differ by >%d\u00d7 in daily rate; the monthly split "
+            "of %s is unreliable (disclosures are rounded milestones); annual totals are unaffected"
+            % (program, region, RATE_JUMP, ", ".join(sorted(flagged))))
 
 
 def _pack(result):

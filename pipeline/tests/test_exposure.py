@@ -125,6 +125,56 @@ class FlowTests(unittest.TestCase):
         self.assertEqual([k for k in out if k[2] == "miles"], [])
         self.assertTrue(any("decreas" in w for w in warnings))
 
+    NOTE = "adjacent disclosure segments differ by >3\u00d7; disclosures are rounded milestones, so the monthly split is unreliable"
+
+    def spiky(self):
+        # daily rates: 100/105 d = 0.95, 200/40 d = 5.0, 100/220 d = 0.45
+        return [cum("2024-12-31", 100), cum("2025-04-15", 200), cum("2025-05-25", 400), cum("2025-12-31", 500)]
+
+    def test_adjacent_segments_over_3x_flag_the_months_of_the_short_segment(self):
+        out, warnings = normalize(self.spiky())
+        for month in ("2025-04", "2025-05"):
+            self.assertIn(self.NOTE, out[("waymo_ads", "us", "miles", month)]["method"], month)
+        for month in ("2025-02", "2025-03", "2025-07", "2025-12"):
+            self.assertNotIn(self.NOTE, out[("waymo_ads", "us", "miles", month)]["method"], month)
+        flagged = [w for w in warnings if "differ" in w]
+        self.assertEqual(len(flagged), 1)
+        for needle in ("waymo_ads", "2025-04", "2025-05", "3"):
+            self.assertIn(needle, flagged[0])
+        self.assertNotIn("2025-07", flagged[0])
+
+    def test_the_flag_changes_no_value_and_leaves_annual_rows_alone(self):
+        flagged, _ = normalize(self.spiky())
+        calm, _ = normalize([cum("2024-12-31", 100), cum("2025-04-15", 200), cum("2025-05-25", 300), cum("2025-12-31", 400)])
+        year = flagged[("waymo_ads", "us", "miles", "2025")]
+        self.assertEqual(year["value"], 400)
+        self.assertNotIn("3\u00d7", year["method"])
+        self.assertEqual(flagged[("waymo_ads", "us", "miles", "2025-04")]["value"],
+                         round(100 * 15 / 105 + 200 * 15 / 40))
+
+    def test_segments_within_3x_are_not_flagged(self):
+        rows = [cum("2025-01-01", 0), cum("2025-04-11", 100), cum("2025-06-30", 280), cum("2025-12-27", 640)]
+        out, warnings = normalize(rows)  # 1, 2.25 and 2 miles a day
+        self.assertFalse([w for w in warnings if "differ" in w])
+        self.assertTrue(all(self.NOTE not in r["method"] for r in out.values()))
+
+    def test_a_drop_in_rate_is_flagged_too(self):
+        rows = [cum("2024-12-31", 0), cum("2025-02-01", 320), cum("2025-02-21", 340), cum("2025-12-31", 640)]
+        out, warnings = normalize(rows)  # 10/day, 1/day, 0.31/day
+        self.assertIn(self.NOTE, out[("waymo_ads", "us", "miles", "2025-02")]["method"])
+        self.assertTrue([w for w in warnings if "differ" in w])
+
+    def test_even_growth_has_no_flag(self):
+        rows = [cum("2024-12-31", 0), cum("2025-04-01", 900), cum("2025-08-01", 2100), cum("2025-12-31", 3600)]
+        out, warnings = normalize(rows)  # 10, 9.8, 10.6 per day
+        self.assertFalse([w for w in warnings if "differ" in w])
+        self.assertTrue(all(self.NOTE not in r["method"] for r in out.values()))
+
+    def test_zero_growth_segment_is_skipped_not_divided(self):
+        rows = [cum("2024-12-31", 100), cum("2025-04-01", 100), cum("2025-12-31", 900)]
+        out, warnings = normalize(rows)
+        self.assertFalse([w for w in warnings if "differ" in w])
+
     def test_zero_or_missing_exposure_makes_no_row(self):
         rows = [
             cum("2024-12-31", 100), cum("2025-12-31", 100),  # zero delta
