@@ -157,8 +157,10 @@ Anyone is welcome to pick these up.
   rationale and evidence fields; labels never overwrite source data.
 - **Responsibility ("who was at fault") lens.** NHTSA records no fault field, so this is an *inference*,
   always labeled with its evidence basis and confidence, never presented as a finding of fault.
-  Outputs: other party / automated system / human driver (Level 2 only) / indeterminate. Pass 1:
-  rules on structured fields (SV/CP contact areas, pre-crash movements, speed, crash-with, engagement).
+  Outputs: other party / automated system / human driver (Level 2 only) / indeterminate. Pass 1
+  (built: `pipeline/responsibility.py`, label_set `responsibility_rules_v1`, written to the `labels` table and
+  exported as `responsibility*.json` with a rough keyword audit against readable narratives): rules on structured
+  fields (SV/CP contact areas, pre-crash movements, speed, crash-with).
   Pass 2: an LLM reads narratives where they are not redacted (Waymo, Zoox, Cruise; almost none
   for Tesla) and is used to calibrate and audit pass 1. For Level 2 programs, driver vs. system cannot
   be separated from NHTSA data; the lens says so rather than guessing. Stored in the `labels` table.
