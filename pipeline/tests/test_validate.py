@@ -257,6 +257,23 @@ class OutputCheckTests(unittest.TestCase):
         self.assertEqual(len(errors), 2)
         self.assertTrue(any("zzz" in e for e in errors))
 
+    def test_every_current_report_needs_exactly_one_responsibility_label(self):
+        reports = [
+            {"report_key": "A|v1", "is_latest": True, "is_placeholder": False, "removed_in_run": None},
+            {"report_key": "B|v1", "is_latest": True, "is_placeholder": False, "removed_in_run": None},
+            {"report_key": "B|v0", "is_latest": False, "is_placeholder": False, "removed_in_run": None},
+        ]
+        label = lambda key, s="responsibility_rules_v1": {"report_key": key, "label_set": s}  # noqa: E731
+        good = {"labels": [label("A|v1"), label("B|v1"), label("A|v1", "llm_v1")]}
+        self.assertEqual(validate.check_responsibility(good, reports), [])
+        errors = validate.check_responsibility({"labels": [label("A|v1"), label("A|v1")]}, reports)
+        self.assertEqual(len(errors), 2)  # A twice, B missing
+        self.assertTrue(any("B|v1" in e and "no" in e for e in errors), errors)
+        self.assertTrue(any("A|v1" in e for e in errors), errors)
+        errors = validate.check_responsibility({"labels": [label("A|v1"), label("B|v1"), label("GONE|v1")]}, reports)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("GONE|v1", errors[0])
+
 
 if __name__ == "__main__":
     unittest.main()

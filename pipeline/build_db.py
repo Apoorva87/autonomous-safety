@@ -15,7 +15,8 @@ changed or removed (plus one new row in runs.jsonl). Rebuilding with the same
 The JSONL files are sorted by key, with sorted keys, UTF-8 and \\n line endings,
 so a rebuild with unchanged inputs is byte-identical. reports.jsonl is split
 into reports.<era>_<kind>.jsonl shards when it would exceed SHARD_THRESHOLD_BYTES.
-labels.jsonl is reserved for future AI analysis and is never rewritten once it exists.
+labels.jsonl is never rewritten by this module once it exists; pipeline.responsibility.write_labels
+replaces only its own label set in it.
 """
 import argparse
 import datetime

@@ -44,7 +44,7 @@ import os
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from . import classify, exposure, golden, validate
+from . import classify, exposure, golden, responsibility, validate
 
 SEVERITIES = ["none", "minor", "moderate", "serious", "fatal", "unknown"]
 _RANK = golden.SEVERITY_RANK
@@ -58,7 +58,7 @@ OUTPUT_FILES = (
     "records.json", "narratives.json", "counts.json", "lag.json", "exposure.json", "company_reported.json",
     "sources.json", "investigations.json", "events.json", "rules.json", "transparency.json", "meta.json",
     "changelog.json",
-)
+) + responsibility.OUTPUT_FILES
 
 # Column order of records.json rows. "id" is the report id of the representative report.
 RECORD_FIELDS = [
@@ -411,6 +411,7 @@ def build_all(tables, fetch_log, run_id, run_at, today, previous_tables=None, pr
         "transparency.json": build_transparency(reports),
         "meta.json": build_meta(tables, reports, crashes, fetch_log, run_id, run_at, today, all_warnings, offline),
         "changelog.json": merge_changelog(previous_changelog, entry),
+        **responsibility.build_outputs(reports, tables.get("labels", []), run_id),
     }
     assert set(outputs) == set(OUTPUT_FILES)
     return outputs, all_warnings

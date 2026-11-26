@@ -9,8 +9,10 @@
              database, not site/public/data, not data/raw, not the fetch log.
              This gate runs before build_db: a duplicate (Report ID, Version)
              would otherwise make the builder raise.
-  3. build   golden.build in memory, then aggregate.build_all and the
-             post-aggregate checks (counts reconcile with the incidents).
+  3. build   golden.build in memory, then the responsibility labels (pass 1 rules,
+             merged into the labels table; other label sets are left as they are),
+             then aggregate.build_all and the post-aggregate checks (counts
+             reconcile with the incidents, every current report has one label).
              Any error again exits 1 with nothing written.
   4. write   promote the staged files to data/raw and the fetch log, write the
              golden JSONL (and golden.sqlite), then site/public/data/*.json.
@@ -27,7 +29,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from . import aggregate, build_db, config, fetch, golden, manual, validate
+from . import aggregate, build_db, config, fetch, golden, manual, responsibility, validate
 
 
 def _read_json(path, default=None):
@@ -71,6 +73,10 @@ def _summary(outputs):
     print("crashes by program (unique incidents within each program, overlapping across programs; reports in brackets):")
     for program, (crashes, reports) in sorted(totals.items()):
         print("  %-16s %6d  (%d)" % (program, crashes, reports))
+    summary = outputs["responsibility.json"]["summary"]["counts"]
+    print("inferred responsibility labels (not a finding of fault), by program:")
+    for program, labels in sorted(summary.items()):
+        print("  %-16s %s" % (program, "  ".join("%s %d" % (l, sum(c.values())) for l, c in sorted(labels.items()))))
     meta = outputs["meta.json"]
     print("total: %d unique incidents (not the sum of the rows above), %d reports" % (meta["total_incidents"], meta["total_reports"]))
 
@@ -121,11 +127,16 @@ def run(offline=False, run_id=None, raw_dir=None, manual_dir=None, golden_dir=No
         manual_tables = manual.load(manual_dir, today=today)
         previous = build_db.read_previous(golden_dir)
         tables = golden.build(source_dir, manual_tables, run_id, previous=previous, fetch_log=fetch_log)
+        labels_payload = responsibility.merge_labels(
+            responsibility.read_existing(golden_dir),
+            responsibility.build_labels(tables["reports"], run_id, previous=tables["labels"]),
+        )
+        tables["labels"] = responsibility.parse_labels(labels_payload)
         outputs, warnings = aggregate.build_all(
             tables, fetch_log, run_id, run_at, today, previous_tables=previous,
             previous_changelog=_read_json(out_dir / "changelog.json"), warnings=warnings, offline=offline,
         )
-        errors = validate.check_outputs(outputs, tables)
+        errors = validate.check_outputs(outputs, tables) + validate.check_responsibility(tables, tables["reports"])
         if errors:
             return _fail(errors, warnings)
 
@@ -133,6 +144,7 @@ def run(offline=False, run_id=None, raw_dir=None, manual_dir=None, golden_dir=No
         if staging is not None:
             _promote(staging, raw_dir, fetch_log, fetch_log_path)
         build_db.write_jsonl(tables, golden_dir)
+        responsibility.write_labels(golden_dir, labels_payload)
         if write_sqlite:
             build_db.write_sqlite(tables, Path(golden_dir) / build_db.SQLITE_NAME)
         aggregate.write_all(outputs, out_dir)

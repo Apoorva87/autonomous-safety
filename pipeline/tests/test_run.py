@@ -104,6 +104,65 @@ class OfflineRunTests(RunBase):
         self.assertIsInstance(meta["nhtsa_last_modified"], str)
 
 
+class ResponsibilityRunTests(RunBase):
+    def read_labels(self):
+        return [json.loads(l) for l in (self.golden / "labels.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+
+    def test_every_current_report_is_labelled_and_exported(self):
+        self.assertEqual(self.run_pipeline("20261126T100000Z")[0], 0)
+        labels = self.read_labels()
+        meta = json.loads((self.out / "meta.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(labels), meta["counts_total"]["reports"])
+        self.assertEqual({l["label_set"] for l in labels}, {"responsibility_rules_v1"})
+        self.assertEqual({l["run_at"] for l in labels}, {"2026-11-26T10:00:00Z"})
+        data = json.loads((self.out / "responsibility.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(data["rows"]), len(labels))
+        self.assertEqual(data["generated_for_run"], "20261126T100000Z")
+        for name in ("responsibility_rules.json", "responsibility_audit.json"):
+            self.assertTrue((self.out / name).exists(), name)
+
+    def test_sqlite_includes_the_labels(self):
+        import sqlite3
+        self.run_pipeline()
+        con = sqlite3.connect(self.golden / "golden.sqlite")
+        try:
+            n, rules = con.execute("SELECT count(*), count(rule) FROM labels WHERE label_set = 'responsibility_rules_v1'").fetchone()
+        finally:
+            con.close()
+        self.assertEqual(n, len(self.read_labels()))
+        self.assertEqual(rules, n)
+
+    def test_rerun_with_the_same_run_id_is_byte_identical(self):
+        self.run_pipeline("r1")
+        before = self.state()
+        self.assertEqual(self.run_pipeline("r1")[0], 0)
+        self.assertEqual(self.state()[:2], before[:2])
+
+    def test_foreign_label_rows_survive_a_regeneration_byte_for_byte(self):
+        self.run_pipeline("r1")
+        key = self.read_labels()[0]["report_key"]
+        foreign = ('{"label":"avoidable","label_set":"llm_v1","model":"m","prompt_version":"p","rationale":"r",'
+                   '"report_key":"%s","run_at":"2026-01-01T00:00:00Z","evidence_fields":[]}\n' % key).encode("utf-8")
+        path = self.golden / "labels.jsonl"
+        path.write_bytes(path.read_bytes() + foreign)
+        self.assertEqual(self.run_pipeline("r2")[0], 0)
+        self.assertIn(foreign, path.read_bytes())
+        own = [l for l in self.read_labels() if l["label_set"] == "responsibility_rules_v1"]
+        self.assertEqual(len(own), len([l for l in self.read_labels() if l["label_set"] != "llm_v1"]))
+
+    def test_unchanged_labels_keep_their_run_at_across_runs(self):
+        self.run_pipeline("20261126T100000Z")
+        self.run_pipeline("20261127T100000Z")
+        self.assertEqual({l["run_at"] for l in self.read_labels()}, {"2026-11-26T10:00:00Z"})
+
+    def test_a_refused_run_leaves_the_labels_alone(self):
+        self.run_pipeline("r1")
+        before = (self.golden / "labels.jsonl").read_bytes()
+        support.edit_csv(self.raw / "current_ADS.csv", lambda rows, fields: rows[0].update({"Highest Injury Severity Alleged": "Mildly Ouchy"}))
+        self.assertEqual(self.run_pipeline("r2")[0], 1)
+        self.assertEqual((self.golden / "labels.jsonl").read_bytes(), before)
+
+
 class GateTests(RunBase):
     def assertRefused(self, before, code, err, *needles):
         self.assertEqual(code, 1)

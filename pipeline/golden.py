@@ -15,9 +15,10 @@ Tables
                    the manual tables, copied unchanged from manual.load()
   runs             one row per build: rules_version, file hashes and last-modified
                    stamps, counts, placeholder rows, unmapped labels
-  labels           reserved for future AI analysis, keyed by report_key (one
-                   label per report version); created empty and never written
-                   or deleted by the builder
+  labels           inferred labels, keyed by report_key (one label per report
+                   version); created empty and never written or deleted by the
+                   builder. pipeline.responsibility replaces only the rows of
+                   its own label_set and leaves every other row untouched
 
 is_latest: exactly one row per Report ID among the non-removed rows (none when
 every version of an ID vanished). Placeholder filings carry is_latest too, so

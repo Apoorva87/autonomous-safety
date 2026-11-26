@@ -332,6 +332,25 @@ def check_exposure_sources(outputs):
     return errors
 
 
+def check_responsibility(tables, reports):
+    """Every current report has exactly one responsibility label, and no label points at a vanished report.
+
+    tables   needs "labels"; reports  the golden reports rows (any version, any state).
+    """
+    from . import responsibility
+
+    current = {r["report_key"] for r in reports if responsibility.is_current(r)}
+    seen = Counter(l["report_key"] for l in tables.get("labels", []) if l.get("label_set") == responsibility.LABEL_SET)
+    errors = []
+    for key in sorted(current):
+        if seen[key] != 1:
+            errors.append("report %s has %s %s label(s), expected exactly one"
+                          % (key, "no" if not seen[key] else seen[key], responsibility.LABEL_SET))
+    for key in sorted(set(seen) - current):
+        errors.append("%s label for %s, which is not a current report" % (responsibility.LABEL_SET, key))
+    return errors
+
+
 def check_outputs(outputs, tables):
     """Post-aggregate checks (errors only)."""
     from . import aggregate
