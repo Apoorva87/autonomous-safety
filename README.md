@@ -33,7 +33,7 @@ sources → pipeline (fetch → harmonize → classify → validate) → golden 
 | Harmonize the old (2021–Jun 2025) and new (Jun 2025–) NHTSA formats; latest version of each report; group reports into unique crashes | `pipeline/harmonize.py`, `pipeline/schema.py` | **Built** |
 | Transparent failure-pattern tags (each records whether it came from a structured field or the narrative) | `pipeline/classify.py` | **Built** |
 | Curated company disclosures (miles, fleet, subscribers, company-reported safety metrics, investigations, events), each row with a source | `data/manual/`, `pipeline/manual.py` | In progress |
-| Golden database: every source column, every report version, explicit missing-value reasons | `pipeline/golden.py` | **Planned** (next) |
+| Golden database: every source column, every report version, explicit missing-value reasons (see [Golden database](#golden-database)) | `pipeline/golden.py`, `pipeline/build_db.py`, `data/golden/` | **Built** |
 | Aggregation + validation gates (a bad update deploys nothing) | `pipeline/aggregate.py`, `validate.py` | **Planned** |
 | Monthly GitHub Action + GitHub Pages deploy | `.github/workflows/` | **Planned** |
 | Dashboard: head-to-head, company tabs, WebGL crash explorer, patterns, city map, transparency | `site/` | **Planned** |
@@ -64,13 +64,64 @@ Implementation plan: [`docs/superpowers/plans/2026-11-26-av-safety-dashboard.md`
 - Mileage/fleet figures differ in reliability: each is labelled `reported`, `derived` or
   `estimate`. Estimates are never shown as reported numbers.
 
+## Golden database
+
+The durable asset. Every column of every SGO report version is kept, merged into one format, and
+nothing is silently blank. Built by `python3 -m pipeline.build_db [--run-id ID]` into `data/golden/`
+(about 6 s). Run it once per refresh: each run stamps `last_seen_run` on every row it sees.
+
+**Storage.** One JSONL file per table (sorted by key, keys sorted, UTF-8, `\n` line endings, so an
+unchanged rebuild is byte-identical) is the canonical, committed store. `reports` is about 106 MB,
+so it is split into `reports.<era>_<kind>.jsonl` shards (30 MB at most; the builder switches to
+shards by itself above 60 MB). `data/golden/golden.sqlite` is compiled from the JSONL as a download and
+is **not committed** (git-ignored; rebuild it with the command above).
+
+| Table | One row per | Notes |
+|---|---|---|
+| `reports` | (Report ID, Report Version) in any SGO file | Every version kept. `is_latest` marks one per Report ID; `raw` holds every source column verbatim (trimmed; columns the era lacks are absent); the normalized fields sit beside it, with a `status` per field. `row_hash`, `first_seen_run`, `last_seen_run`, `removed_in_run`, `previous_row_hash` trace corrections and withdrawals. "No New or Updated Incident Reports" filings are kept with `is_placeholder = true`. |
+| `incidents` | `incident_key` (Same Incident ID, else `solo:<id>`) | Member `report_ids`, all `report_keys`, `latest_report_keys`, companies, programs, month, max severity. |
+| `sources`, `exposure`, `company_reported`, `investigations`, `events`, `cadence` | the hand-curated rows of `data/manual/` | Copied unchanged (including `region`, `recall_units`, `date_precision`). |
+| `runs` | build | Run id, NHTSA `Last-Modified` and SHA-256 per file, row counts, placeholder rows, unmapped labels. |
+| `labels` | (report, label set) | Reserved for the future AI avoidability analysis. Created empty, and the builder never writes or deletes label rows once present. Columns: `report_key, label_set, label, rationale, evidence_fields, model, prompt_version, run_at`. |
+
+**Field status.** Each normalized field has one of five statuses in `reports.status`. The UI shows
+the last four as "unavailable" and the status as the reason.
+
+| Status | Meaning |
+|---|---|
+| `provided` | The source gave a value. |
+| `reported_unknown` | The column exists but says Unknown, or is blank. |
+| `redacted_cbi` | The value is the redaction marker, or its CBI flag is Y (Tesla's narratives and versions, most "Within ODD?" answers). |
+| `not_collected_in_era` | The column does not exist in this report's era (for example `lighting` after 2025-06-16). |
+| `not_applicable` | The field does not apply (placeholder filing, no crash partner, consumer-owned vehicle, "N/A" agency). |
+
+The rules live in one table, `golden.STATUS_RULES`.
+
+**Query it.**
+
+```bash
+sqlite3 data/golden/golden.sqlite
+```
+```sql
+-- Latest Tesla L2 reports by month
+SELECT month, COUNT(*) FROM latest_reports WHERE program = 'tesla_l2' GROUP BY month ORDER BY month;
+-- How often is lighting unavailable, and why
+SELECT json_extract(status, '$.lighting') AS why, COUNT(*) FROM latest_reports GROUP BY why;
+-- Subject vehicle struck at the rear while stopped (inputs for the avoidability analysis)
+SELECT report_key, sv_movement, sv_contact_areas FROM latest_reports
+WHERE sv_movement = 'stopped' AND sv_contact_areas = '["rear"]';
+-- Every source column of one report
+SELECT raw FROM reports WHERE report_key = '<Report ID>|v1';
+```
+
+**Built vs planned.** Built: the tables above, the JSONL store, sqlite compile, field statuses,
+version and withdrawal tracking. Planned: filling `labels` (AI avoidability analysis), validation
+gates that run before a build is committed, and the site reading its exports from the golden store.
+
 ## Planned work (not yet implemented)
 
 Anyone is welcome to pick these up.
 
-- **Golden database.** Keep *all* ~137/~116 source columns and every report version, with a status per
-  field (`provided`, `reported_unknown`, `redacted_cbi`, `not_collected_in_era`, `not_applicable`).
-  Canonical store is diff-friendly JSONL in git, plus a compiled SQLite file for download.
 - **AI avoidability analysis.** Classify each incident as *unavoidable by an automated driver*
   (e.g. struck from behind or the side while stopped) vs. *plausibly the automation's fault*. The
   data to support it is retained (SV/CP contact areas, pre-crash movement, speed, engagement,
@@ -97,6 +148,7 @@ Requires Python 3.9+ (standard library only). Run from the repo root.
 ```bash
 python3 -m unittest discover -s pipeline/tests -v   # run tests
 python3 -m pipeline.fetch                           # download SGO CSVs into data/raw/
+python3 -m pipeline.build_db                        # build the golden database in data/golden/
 ```
 
 ## License and data terms
