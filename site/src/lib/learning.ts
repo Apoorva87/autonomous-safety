@@ -1,5 +1,5 @@
 import { ci95 } from './poisson';
-import { cdfAt, series, type CountsByMonth, type ExposureRow, type Kind, type LagCurve, type Point } from './metrics';
+import { cdfAt, series, type CountsByMonth, type ExposureRow, type Kind, type LagCurve, type Metric, type Point } from './metrics';
 import type { Scenario } from '../state/scenario';
 
 // Learning curves: crash rate against cumulative exposure. Points are calendar quarters built from the
@@ -101,6 +101,24 @@ export function learningCurve(
       scenario: pts.some((p) => p.scenario),
       sourceIds: [...new Set(pts.flatMap((p) => p.sourceIds))],
     });
+  }
+  return out;
+}
+
+/** Monthly Points for any metric over 2021 to the last month (for the timeline). Months without exposure have a null rate. */
+export function monthlySeries(
+  counts: CountsByMonth,
+  exposure: ExposureRow[],
+  scenario: Scenario,
+  opts: { program: string; region: string; metric: Metric; lastMonth: string; lag?: LagCurve },
+): Point[] {
+  const out: Point[] = [];
+  for (let y = 2021; y <= Number(opts.lastMonth.slice(0, 4)); y++) {
+    out.push(
+      ...series(counts, exposure, scenario, {
+        program: opts.program, region: opts.region, metric: opts.metric, grain: 'month', year: y, lastMonth: opts.lastMonth, lag: opts.lag,
+      }),
+    );
   }
   return out;
 }

@@ -76,6 +76,17 @@ export function useRatesData(): { rates: RatesData | null; error: string | null 
   return { rates, error };
 }
 
+let invCache: Promise<InvestigationRow[]> | null = null;
+/** investigations.json alone (7 KB), for views that do not need the rest of the rates data. */
+export function useInvestigations(): InvestigationRow[] {
+  const [rows, setRows] = useState<InvestigationRow[]>([]);
+  useEffect(() => {
+    invCache ??= getJson<{ rows: InvestigationRow[] }>('investigations.json').then((r) => r.rows);
+    invCache.then(setRows, () => setRows([]));
+  }, []);
+  return rows;
+}
+
 // ---- region scopes ----
 
 type Scope = { all: true } | { state: string; cities?: string[] };
