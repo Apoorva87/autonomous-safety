@@ -131,8 +131,10 @@ export function Overview({ data, mode }: { data: Data; mode: Mode }) {
       <h2>Injury severity mix</h2>
       <p className="prose">
         Highest injury level reported for each crash. Grey is "Unknown": either the filer did not know or the injury
-        label was not given. The share of unknowns differs a lot between programs, so compare the colored parts with
-        care.
+        label was not given. The share of unknowns differs a lot between programs: for Tesla's driver-assist reports
+        about 94% are "Unknown" (GM Super Cruise about half), because those filings mostly omit injury detail, while
+        driverless programs report it almost always. A low colored share for Tesla therefore does not mean few
+        injuries; compare the colored parts with care.
       </p>
       <EChart
         height={330}
