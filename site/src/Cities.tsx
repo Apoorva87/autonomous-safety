@@ -86,7 +86,7 @@ function CitiesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
   const allQ = rows.flatMap((r) => r.quarters);
   const sparkT0 = allQ.length ? Math.min(...allQ.map((q) => q.t)) - 30 * 86_400_000 : 0;
   const sparkT1 = allQ.length ? Math.max(...allQ.map((q) => q.t)) + 30 * 86_400_000 : 1;
-  const yMax = (allQ.length ? Math.max(...allQ.map((q) => q.rate)) : 1) * 1.5 || 1;
+  const yMax = (allQ.length ? Math.max(...allQ.map((q) => q.rate)) : 1) * 1.12 || 1;
 
   // counts-only ranking
   const rankProg = params.get('crk') ?? prog;
@@ -142,7 +142,7 @@ function CitiesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
           <RateBars items={items} unit="crashes per million miles" ariaLabel={`${info.short} crashes per million miles by city`} />
           {period === 'all' && (
             <p className="small">
-              Cities cover different spans (months in brackets), so with "every month" the bars are not like for like; pick a single year to compare cities over the same months.
+              Cities cover different spans (the number of months with miles follows each name), so with "every month" the bars are not like for like; pick a single year to compare cities over the same months.
             </p>
           )}
           <p className="small">

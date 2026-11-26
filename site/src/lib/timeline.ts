@@ -13,6 +13,14 @@ export function dateMs(d: string): number {
 export const msToDate = (t: number): string => new Date(t).toISOString().slice(0, 10);
 export const msToMonth = (t: number): string => new Date(t).toISOString().slice(0, 7);
 
+/** Smallest "round" number (1, 2, 4, 5 or 10 times a power of ten) that is at least v, so axis ticks at 0, half and full read cleanly. */
+export function niceCeil(v: number): number {
+  if (!(v > 0)) return 1;
+  const p = 10 ** Math.floor(Math.log10(v));
+  for (const m of [1, 2, 4, 5, 10]) if (m * p >= v - 1e-12) return m * p;
+  return 10 * p;
+}
+
 export type Range = { t0: number; t1: number };
 
 export function makeScale(r: Range, x0: number, x1: number) {

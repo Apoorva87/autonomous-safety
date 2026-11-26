@@ -70,7 +70,7 @@ export function Spark({
         {years.map((yr) => (
           <text key={yr} x={x(Date.UTC(yr, 0, 1))} y={H - 6} textAnchor="middle" fontSize="9" fill={t.muted}>{yr}</text>
         ))}
-        {showBreak && <line x1={breakX} x2={breakX} y1={m.t} y2={H - m.b} stroke="#b3361a" strokeDasharray="3 3" />}
+        {showBreak && <line x1={breakX} x2={breakX} y1={m.t} y2={H - m.b} stroke={mode === 'dark' ? '#f08a72' : '#b3361a'} strokeDasharray="3 3" />}
         {band && <path d={band} fill={color} opacity={0.18} />}
         {line && <path d={line} fill="none" stroke={color} strokeWidth={2} />}
         {points.map((p) => (

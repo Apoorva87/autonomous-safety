@@ -8,7 +8,7 @@ import { series, type Point } from './lib/metrics';
 import { fmtCI, fmtInt, fmtNum, fmtRateText } from './lib/format';
 import { useScenario } from './state/scenario';
 import { TeslaVsrPanel } from './components/TeslaVsrPanel';
-import { RateBars, type BarItem } from './components/RateBars';
+import type { BarItem } from './components/RateBars';
 import { LowSampleMark, ScenarioBadge, SourceBadge, SourcesCtx } from './components/SourceBadge';
 import { SourceNote } from './EChart';
 
@@ -129,7 +129,7 @@ function ClaimsLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
                 Autopilot and FSD, so no US denominator exists. These are 30-second (driver-assist) or any-time (driverless) NHTSA counts, not Tesla's 5-second airbag counts.
               </p>
               {bars.length > 0 ? (
-                <RateBars items={bars.map((b) => ({ ...b, rate: b.rate }))} unit="miles per crash" ariaLabel="NHTSA-derived miles per crash by program, latest year" />
+                <MpcDots items={bars} t={t} />
               ) : (
                 <p className="small">No program has a usable denominator right now.</p>
               )}
@@ -166,7 +166,7 @@ function ClaimsLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
                   </tbody>
                 </table>
               </div>
-              <p className="small">Hatched bars: estimated miles or fewer than 10 crashes. For other programs and months, use the Rates tab.</p>
+              <p className="small">Hollow markers: estimated miles or fewer than 10 crashes. For other programs and months, use the Rates tab.</p>
             </section>
           </div>
         </div>
@@ -231,8 +231,8 @@ function ClaimsLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
                       <tr key={r.metric}>
                         <th scope="row">{r.outcome}</th>
                         <td>{r.period}</td>
-                        <td className="num">{r.crashes == null ? 'n/a' : fmtNum(r.crashes)}</td>
-                        <td className="num">{r.predicted == null ? 'n/a' : fmtNum(r.predicted)}</td>
+                        <td className="num">{r.crashes == null ? 'n/a' : fmtInt(r.crashes)}</td>
+                        <td className="num">{r.predicted == null ? 'n/a' : r.predicted.toFixed(1)}</td>
                         <td className="num"><b>{r.pct.toFixed(1)}%</b></td>
                         <td>{r.lo == null ? 'see note' : `${r.lo.toFixed(1)}% to ${r.hi!.toFixed(1)}%`}</td>
                       </tr>
@@ -281,6 +281,42 @@ function MethodBox({ ids, src }: { ids: string[]; src: Record<string, SourceRow>
     <div className="callout" style={{ marginTop: 10, maxWidth: 'none' }}>
       <MethodText ids={ids} src={src} />
     </div>
+  );
+}
+
+/** Latest-year miles per crash per program on a log axis (driver-assist and driverless programs differ by an order of magnitude). Hollow = low sample or estimated miles. */
+function MpcDots({ items, t }: { items: BarItem[]; t: ReturnType<typeof ui> }) {
+  const ok = items.filter((i) => i.rate != null && i.lo != null);
+  if (ok.length === 0) return null;
+  const lo10 = Math.floor(Math.log10(Math.min(...ok.map((i) => i.lo as number))));
+  const hi10 = Math.ceil(Math.log10(Math.max(...ok.map((i) => i.hi ?? (i.rate as number)))));
+  const W = 480;
+  const L = 178;
+  const R = 26;
+  const rowH = 30;
+  const H = ok.length * rowH + 52;
+  const x = (v: number) => L + ((Math.log10(Math.max(v, 10 ** lo10)) - lo10) / (hi10 - lo10 || 1)) * (W - L - R);
+  const decades = Array.from({ length: hi10 - lo10 + 1 }, (_, i) => 10 ** (lo10 + i));
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="forest" role="img" aria-label="NHTSA-derived miles per crash by program, latest year, with 95% intervals, on a logarithmic axis">
+      {decades.map((d) => (
+        <g key={d}>
+          <line x1={x(d)} x2={x(d)} y1={4} y2={H - 26} stroke={t.grid} />
+          <text x={x(d)} y={H - 18} textAnchor="middle" fontSize="11" fill={t.muted}>{fmtNum(d)}</text>
+        </g>
+      ))}
+      <text x={(L + W - R) / 2} y={H - 2} textAnchor="middle" fontSize="11" fill={t.muted}>miles per crash (log scale)</text>
+      {ok.map((i, n) => {
+        const y = 16 + n * rowH;
+        return (
+          <g key={i.key}>
+            <text x={L - 8} y={y + 4} textAnchor="end" fontSize="12" fill={t.ink}>{i.label} {i.sub}</text>
+            <line x1={x(i.lo as number)} x2={x(i.hi ?? (i.rate as number))} y1={y} y2={y} stroke={i.color} strokeWidth={2.5} />
+            <circle cx={x(i.rate as number)} cy={y} r={6} fill={i.lowSample ? t.surface : i.color} stroke={i.color} strokeWidth={2.5} />
+          </g>
+        );
+      })}
+    </svg>
   );
 }
 

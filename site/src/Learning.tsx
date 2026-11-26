@@ -62,16 +62,21 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
   const option = useMemo<EChartsCoreOption>(() => {
     const all = curves.flatMap((c) => c.pts);
     const xs = all.map((p) => p.cumMiles);
-    const xMin = xs.length ? Math.min(...xs) / 1.5 : 1;
-    const xMax = xs.length ? Math.max(...xs) * 1.5 : 10;
+    const xMin = xs.length ? 10 ** Math.floor(Math.log10(Math.min(...xs))) : 1;
+    const xMax = xs.length ? 10 ** Math.ceil(Math.log10(Math.max(...xs))) : 10;
     const yv = (p: LearnPoint, which: 'v' | 'lo' | 'hi') =>
       yMode === 'rate' ? (which === 'v' ? p.rate : which === 'lo' ? p.lo : p.hi) : which === 'v' ? p.mpc : which === 'lo' ? p.mpcLo : p.mpcHi;
     const ys = all.map((p) => yv(p, 'v')).filter((v): v is number => v != null);
-    const yMax = (ys.length ? Math.max(...ys) : 1) * 1.7;
-    const clip = (v: number | null) => (v == null ? yMax : Math.min(v, yMax));
+    // Log vertical axis: driver-assist and driverless programs differ by two orders of magnitude, so a linear axis would flatten one of them.
+    // Periods with no crash have no point on a log axis; they stay in the table below.
+    const lows = all.map((p) => yv(p, 'lo')).filter((v): v is number => v != null && v > 0);
+    const yTop = 10 ** Math.ceil(Math.log10((ys.length ? Math.max(...ys) : 1) * 1.2));
+    const yBot = 10 ** Math.floor(Math.log10(lows.length ? Math.min(...lows) : 0.1));
+    const yMax = yTop;
+    const clip = (v: number | null) => (v == null ? yMax : Math.min(Math.max(v, yBot), yMax));
     const series: unknown[] = [];
     for (const c of curves) {
-      const pts = c.pts.filter((p) => yv(p, 'v') != null);
+      const pts = c.pts.filter((p) => (yv(p, 'v') ?? 0) > 0);
       series.push({
         name: c.label, type: 'line', symbol: 'none', lineStyle: { color: c.color, width: 2 }, itemStyle: { color: c.color }, z: 2,
         data: pts.map((p) => [p.cumMiles, yv(p, 'v')]),
@@ -125,7 +130,7 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
         axisLine: { lineStyle: { color: t.rule } }, splitLine: { lineStyle: { color: t.grid } },
       },
       yAxis: {
-        type: 'value', min: 0, max: yMax, name: yMode === 'rate' ? 'crashes per million miles' : 'miles per crash',
+        type: 'log', min: yBot, max: yMax, name: yMode === 'rate' ? 'crashes per million miles' : 'miles per crash',
         nameTextStyle: { color: t.muted, align: 'left', fontSize: 11 }, axisLabel: { color: t.muted, formatter: (v: number) => fmtNum(v) },
         splitLine: { lineStyle: { color: t.grid } },
       },
@@ -182,7 +187,7 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
                 {isNonDefault(scenario) && <> <ScenarioBadge title="You changed an assumption on the Rates tab (window factor, lag adjustment, count by); it applies here too" /></>}
               </span>
               <span className="panel-total">
-                Points: {group === 'quarter' ? 'calendar quarters' : 'months'} · whiskers: exact Poisson 95% interval · log horizontal axis
+                Points: {group === 'quarter' ? 'calendar quarters' : 'months'} · whiskers: exact Poisson 95% interval · log-log axes
                 <SourceBadge sourceIds={sourceIds} label="Sources for these points" />
               </span>
             </figcaption>
@@ -201,7 +206,7 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
             </ul>
             <p className="small">
               The horizontal axis counts miles from each program's <b>first month with a monthly disclosure</b>, not its lifetime total (lifetime miles before then are not in the
-              data), so curves start left of where the company's true cumulative miles stand. Compare shapes, not horizontal positions across programs. {yMode === 'mpc' && 'Periods with no crashes have no miles-per-crash point (only a lower bound), so they are not drawn.'}
+              data), so curves start left of where the company's true cumulative miles stand. Compare shapes, not horizontal positions across programs. Both axes are logarithmic, so equal distances are equal ratios; periods with no crashes cannot sit on a log axis and appear only in the table.
             </p>
           </figure>
         )}

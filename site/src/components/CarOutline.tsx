@@ -18,8 +18,8 @@ const RECT: Record<Exclude<Zone, 'bottom'>, [number, number, number, number]> = 
   rear_right: [160, 300, 80, 150],
 };
 const LABEL_POS: Record<Exclude<Zone, 'bottom'>, [number, number]> = {
-  front_left: [58, 72], front: [120, 62], front_right: [182, 72], left: [58, 222], top: [120, 222], right: [182, 222],
-  rear_left: [58, 366], rear: [120, 376], rear_right: [182, 366],
+  front_left: [66, 104], front: [120, 62], front_right: [174, 104], left: [62, 222], top: [120, 222], right: [179, 222],
+  rear_left: [66, 350], rear: [120, 376], rear_right: [174, 350],
 };
 export const LOW_N = 10;
 
@@ -103,7 +103,7 @@ export function CarOutline({
         <rect x={x} y={y} width={w} height={h} {...common} />
         {low && <rect x={x} y={y} width={w} height={h} fill={`url(#hatch${id})`} pointerEvents="none" />}
         <rect x={x} y={y} width={w} height={h} fill="none" stroke={on ? t.ink : 'transparent'} strokeWidth={4} className="zone-ring" pointerEvents="none" />
-        <text x={lx} y={ly} textAnchor="middle" fontSize={z === 'left' || z === 'right' ? 12 : 14} fontWeight={700} fill={textOn(fill)} pointerEvents="none">
+        <text x={lx} y={ly} textAnchor="middle" fontSize={z === 'left' || z === 'right' || z.includes('_') ? 12.5 : 14} fontWeight={700} fill={textOn(fill)} pointerEvents="none">
           {pct}
         </text>
         <text x={lx} y={ly + 15} textAnchor="middle" fontSize={10.5} fill={textOn(fill)} pointerEvents="none">

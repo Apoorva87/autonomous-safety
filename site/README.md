@@ -42,6 +42,19 @@ The base path is `/autonomous-safety/` (`vite.config.ts`) and data is fetched re
 coverage matrix, Tesla report panel). It reads `exposure.json`, `counts.json`, `lag.json`, `events.json`, `sources.json`,
 `company_reported.json` and `records.json`, never `narratives.json`. Tests: `npm test`.
 
+## Compound views
+
+Loaded on demand (`React.lazy`), all reading the same JSON as the Rates tab (never `narratives.json`); view state lives in the URL.
+
+| Tab | Source | Notes |
+|---|---|---|
+| Impact map | `Impact.tsx`, `lib/impact.ts`, `components/CarOutline.tsx` | Needs `sv_contact_areas` / `cp_contact_areas` columns in `records.json` (lists of zone names). Without them the tab says so and shows crash-with counts. |
+| Cities | `Cities.tsx`, `lib/cities.ts` | Explicit SGO city to Waymo exposure-region mapping (tested against `exposure.json`); counts-only ranking for cities without miles. |
+| Timeline | `Timeline.tsx`, `lib/timeline.ts` | Brush to zoom (`tz0`, `tz1`); events and investigations; jumps to the explorer with `xf`, `xt`, `xp`. |
+| Learning | `Learning.tsx`, `lib/learning.ts` | Quarterly rate against cumulative miles since the first disclosed month (log-log). |
+| Claims | `Claims.tsx`, `lib/claims.ts` | Company-reported panels and NHTSA-derived panels are never merged. |
+| Explorer lenses | `Explorer.tsx`, `lib/lens.ts` | EA26002 and PE25012 presets (`xl`); an approximation of each probe, not its case list. |
+
 ## Notes
 
 - Strings from the CSVs are only rendered as React text, never as HTML.

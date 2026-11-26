@@ -7,7 +7,7 @@ import { monthlySeries } from './lib/learning';
 import { BREAK_DATE, type Metric, type Point } from './lib/metrics';
 import { fmtNum } from './lib/format';
 import {
-  COMPANY_PROGRAMS, dateMs, laneOfEvent, makeScale, makeTicks, msToDate, msToMonth, packLanes, panRange,
+  COMPANY_PROGRAMS, dateMs, laneOfEvent, makeScale, makeTicks, niceCeil, msToDate, msToMonth, packLanes, panRange,
   periodForEvent, periodForInvestigation, zoomRange, type Range,
 } from './lib/timeline';
 import { setQuery, useQuery, useScenario } from './state/scenario';
@@ -29,7 +29,8 @@ const COMPANY_COLOR = (company: string, mode: Mode): string => {
   const p = COMPANY_PROGRAMS[company]?.[0];
   return p ? colorOf(PROGRAM_BY_KEY[p].color, mode) : ui(mode).muted;
 };
-const safeUrl = (u: string) => (/^https?:\/\//i.test(u) ? u : '');
+const BRK = (mode: Mode) => (mode === 'dark' ? '#f08a72' : '#b3361a');
+const safeUrl =(u: string) => (/^https?:\/\//i.test(u) ? u : '');
 
 type Sel = { kind: 'event'; e: EventRow } | { kind: 'inv'; i: InvestigationRow } | null;
 type Series = { prog: string; label: string; color: string; region: string; metric: Metric; pts: Point[] };
@@ -117,7 +118,7 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
   const inView = (ms: number) => ms >= range.t0 && ms <= range.t1;
 
   const allVals = series.flatMap((s) => s.pts.filter((p) => p.rate != null).map((p) => p.rate as number));
-  const yMax = (allVals.length ? Math.max(...allVals) : 1) * 1.3 || 1;
+  const yMax = niceCeil((allVals.length ? Math.max(...allVals) : 1) * 1.1);
   const yOf = (v: number) => yRate0 + (1 - Math.min(v, yMax) / yMax) * rateH;
 
   // ---- interaction ----
@@ -314,8 +315,8 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
               ))}
               {showBreak && (
                 <g>
-                  <line x1={breakX} x2={breakX} y1={yRate0} y2={H - 8} stroke="#b3361a" strokeDasharray="4 3" strokeWidth={1.5} />
-                  <text x={breakX + 4} y={yRate0 + 11} fontSize="10.5" fill="#b3361a">2025-06-16 NHTSA rule change</text>
+                  <line x1={breakX} x2={breakX} y1={yRate0} y2={H - 8} stroke={BRK(mode)} strokeDasharray="4 3" strokeWidth={1.5} />
+                  <text x={breakX > w - 190 ? breakX - 4 : breakX + 4} y={yRate0 + 11} textAnchor={breakX > w - 190 ? 'end' : 'start'} fontSize="10.5" fill={BRK(mode)}>2025-06-16 NHTSA rule change</text>
                 </g>
               )}
 
@@ -427,6 +428,9 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
             <li>◆ filled: dated to the day · ◇ hollow: month only</li>
             <li>Probe bars: solid = closed, hatched = open</li>
           </ul>
+          <p className="small" style={{ padding: '0 6px' }}>
+            The last two or three months always sit low: reports are still arriving (the Rates tab can adjust for late reports).
+          </p>
           {noRate.length > 0 && (
             <p className="small">
               No exposure is disclosed for {noRate.map((s) => s.label).join(', ')} with this curve, so it shows no line rather than a zero. Choose "Crash count" to see their months.

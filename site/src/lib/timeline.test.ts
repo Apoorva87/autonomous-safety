@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  clampRange, dateMs, laneOfEvent, makeScale, makeTicks, msToDate, packLanes, panRange, periodForEvent, periodForInvestigation, zoomRange,
+  clampRange, dateMs, laneOfEvent, makeScale, niceCeil, makeTicks, msToDate, packLanes, panRange, periodForEvent, periodForInvestigation, zoomRange,
 } from './timeline';
 
 const bounds = { t0: dateMs('2021-01-01'), t1: dateMs('2026-12-31') };
@@ -61,6 +61,13 @@ describe('timeline helpers', () => {
     expect(periodForEvent('2026-09-10', '2026-10')).toEqual({ from: '2026-09', to: '2026-10' });
     expect(periodForInvestigation('2026-03-18', '', '2026-10')).toEqual({ from: '2026-03', to: '2026-10' });
     expect(periodForInvestigation('2024-10-17', '2026-03-18', '2026-10')).toEqual({ from: '2024-10', to: '2026-03' });
+  });
+  it('niceCeil rounds axis maxima up to 1, 2, 4, 5 or 10 times a power of ten', () => {
+    expect(niceCeil(13.2)).toBe(20);
+    expect(niceCeil(20)).toBe(20);
+    expect(niceCeil(3.1)).toBe(4);
+    expect(niceCeil(0.037)).toBeCloseTo(0.04, 12);
+    expect(niceCeil(0)).toBe(1);
   });
   it('event types map to lanes (reporting changes share the rules lane)', () => {
     expect(laneOfEvent('reporting_change')).toBe('regulatory');

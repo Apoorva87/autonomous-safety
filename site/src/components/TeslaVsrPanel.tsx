@@ -58,7 +58,7 @@ export function TeslaVsrPanel({ rows, mode }: { rows: CompanyRow[]; mode: Mode }
       <p className="prose small">
         <b>Tesla counts crashes within 5 seconds of disengagement; NHTSA SGO uses 30 seconds.</b> Tesla's figures are worldwide, include crashes that are
         not reportable to NHTSA, and use airbag or active-restraint deployment as the crash definition. They are shown on their own and are never merged with,
-        or drawn on the same axis as, the NHTSA series above.
+        or drawn on the same axis as, any NHTSA series.
       </p>
       <EChart option={option} height={320} label="Tesla Vehicle Safety Report: miles per crash by quarter with Autopilot, without Autopilot, and the US average Tesla cites" />
       {periods.length > 0 && (
