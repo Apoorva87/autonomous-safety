@@ -117,13 +117,25 @@
   Where a period has no disclosure, use an `estimate` row with method_note, or leave the period absent.
 - [ ] Step 4: `python3 -m pipeline.manual` loads cleanly. Commit `data: curated exposure & source registry`.
 
+### Task 4b: Golden database (inserted by owner direction; spec §12)
+
+**Files:**
+- Create: `pipeline/golden.py`, `pipeline/build_db.py`, `pipeline/tests/test_golden.py`, `data/golden/*.jsonl`
+
+**Interfaces:**
+- Consumes: raw CSVs, `harmonize.load_all`, `classify.tag`, `manual.load`.
+- Produces: `golden.build(raw_dir, manual, run_id) -> dict[table, list[dict]]` for the tables in spec §12; each normalized field carries a status in `{provided, reported_unknown, redacted_cbi, not_collected_in_era, not_applicable}`; `build_db.write_sqlite(tables, path)`.
+
+- [ ] Test first: all raw columns survive (column set of `reports` ⊇ every source column); all report versions kept with exactly one `is_latest` per Report ID; a current-era row has `lighting` status `not_collected_in_era`; a CBI-redacted narrative has `redacted_cbi`; rebuilding twice gives byte-identical JSONL; a changed row bumps `last_seen_run` only for unchanged hashes.
+- [ ] Implement, run on the live files, check row counts against the fetch log; commit.
+
 ### Task 5: Aggregate, validate, orchestrate
 
 **Files:**
 - Create: `pipeline/aggregate.py`, `pipeline/validate.py`, `pipeline/run.py`, `pipeline/tests/test_aggregate.py`, `pipeline/tests/test_validate.py`, `data/registry/expected_entities.json`
 
 **Interfaces:**
-- Consumes: `load_all`, `tag`, `manual.load`, `schema.UNMAPPED`, `schema.EXPECTED_COLUMNS`.
+- Consumes: golden tables (Task 4b) plus `load_all`, `tag`, `manual.load`, `schema.UNMAPPED`, `schema.EXPECTED_COLUMNS`.
 - Produces in `site/public/data/`:
   - `records.json`: columnar `{fields: [...], rows: [[...]]}`, no narratives.
   - `narratives.json`: `{id: text}`.

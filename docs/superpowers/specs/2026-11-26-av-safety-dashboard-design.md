@@ -206,3 +206,30 @@ disclosures, a new reporting entity, a > 50% month-over-month swing for a compan
 Visual styling, exact chart composition per tab, and the classification keyword lists (published).
 Also which disclosure figures exist for each period: research fills these in, and where none
 exist the row is marked as an estimate or left blank.
+
+## 12. Addendum (owner direction 2026-11-26): the golden database
+
+The durable asset is a **golden reference database**, kept separate from every visualization.
+Pipeline = source → golden DB. Site(s) = read-only consumers, so new chart tabs, frameworks
+(React, WebGL, anything else) can be added later without touching ingestion.
+
+- **Keep everything.** Every column from every source is retained: all ~137 archive / ~116
+  current SGO columns (contact areas, data-availability flags, report sources, VIN-decoded fields,
+  CBI flags and so on), plus the verbatim raw value. The normalized record (§3) is an
+  *addition* on top of the raw data, never a replacement. Task 2's `Record` drops ~80 columns, so it is
+  widened, not discarded.
+- **Every version kept.** All report versions are stored, with `is_latest`, plus
+  `first_seen_run` / `last_seen_run` / `row_hash`, so corrections and withdrawals are traceable.
+- **Missing is explicit.** Each normalized field has a status:
+  `provided | reported_unknown | redacted_cbi | not_collected_in_era | not_applicable`
+  (all shown to users as "unavailable", with the reason on hover). A blank is never silently null.
+- **Tables**: `reports` (all versions), `incidents`, `exposure`, `company_reported`, `sources`,
+  `investigations`, `events`, `runs` (the changelog), `labels` (see below).
+- **Storage**: canonical store = diff-friendly JSONL/CSV per table in git (history of every month);
+  `build_db.py` compiles `golden.sqlite` (stdlib `sqlite3`) and publishes it as a download. The
+  site loads compact exports derived from it.
+- **Future AI avoidability analysis** (not built now, but the data is kept to support it): a
+  `labels` table `(report_id, label_set, label, rationale, evidence_fields, model, prompt_version,
+  run_at)`. Structured inputs are retained so a first pass needs no LLM: SV/CP contact areas
+  (struck from behind/side), SV/CP pre-crash movement, SV speed, "ADS/ADAS engaged", road type, "crash with",
+  and the narrative where not redacted. Labels are versioned and never overwrite the source data.
