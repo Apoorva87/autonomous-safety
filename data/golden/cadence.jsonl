@@ -1,0 +1,13 @@
+{"company":"gm","expected_every_days":3650,"last_period":"2023-10-24","metric":"cum_miles","program":"gm_cruise_ads"}
+{"company":"gm","expected_every_days":183,"last_period":"2026-10-21","metric":"cum_miles","program":"gm_supercruise"}
+{"company":"gm","expected_every_days":365,"last_period":"2025-12-31","metric":"subscribers","program":"gm_supercruise"}
+{"company":"tesla","expected_every_days":92,"last_period":"2026-09-30","metric":"active_vehicles","program":"tesla_l2"}
+{"company":"tesla","expected_every_days":92,"last_period":"2026-10-22","metric":"cum_miles","program":"tesla_l2"}
+{"company":"tesla","expected_every_days":92,"last_period":"2026-Q3","metric":"fsd_r12m_miles_per_major_collision","program":"tesla_l2"}
+{"company":"tesla","expected_every_days":92,"last_period":"2026-09-30","metric":"subscribers","program":"tesla_l2"}
+{"company":"tesla","expected_every_days":92,"last_period":"2026-10-18","metric":"cum_miles","program":"tesla_robotaxi"}
+{"company":"waymo","expected_every_days":92,"last_period":"2026-06-30","metric":"cum_miles","program":"waymo_ads"}
+{"company":"waymo","expected_every_days":183,"last_period":"2026-11-20","metric":"recall_units","program":"waymo_ads"}
+{"company":"waymo","expected_every_days":92,"last_period":"2026-06-30","metric":"serious_injury_or_worse_crash_pct_diff_vs_benchmark","program":"waymo_ads"}
+{"company":"zoox","expected_every_days":365,"last_period":"2024","metric":"miles","program":"zoox_ads"}
+{"company":"zoox","expected_every_days":365,"last_period":"2026-07-10","metric":"recall_units","program":"zoox_ads"}
