@@ -20,7 +20,7 @@
 - NHTSA SGO metrics (30 s window) and Tesla Vehicle Safety Report metrics (5 s window) never share a series.
 - Every rate shows an exact Poisson 95% CI. Low-sample = expected count < 10 or `kind=estimate` exposure → hatched + labeled.
 - Monthly cron: `0 14 20 * *` + `workflow_dispatch`. Failed validation → no commit, no deploy.
-- Site base path `/av-safety-dashboard/`. Narratives and all CSV-derived strings render as text, never HTML.
+- Site base path `/autonomous-safety/`. Narratives and all CSV-derived strings render as text, never HTML.
 - Company keys: `tesla`, `gm`, `waymo`, `zoox`, `other`. Program keys: `tesla_l2`, `tesla_robotaxi`, `gm_supercruise`, `gm_cruise_ads`, `waymo_ads`, `zoox_ads`, `other_ads`, `other_l2`.
 
 ## Review Focus
@@ -164,14 +164,14 @@
 ### Task 7: Site core: data, metrics, scenario state
 
 **Files:**
-- Create: `site/` (Vite React TS), `site/src/data/load.ts`, `site/src/lib/metrics.ts`, `site/src/lib/poisson.ts`, `site/src/state/scenario.ts`, `site/src/lib/metrics.test.ts`, `site/src/lib/poisson.test.ts`, `site/src/App.tsx` (tab shell + header with "NHTSA data as of", run date, warnings, and the Run update link `https://github.com/Apoorva87/av-safety-dashboard/actions/workflows/update.yml`)
+- Create: `site/` (Vite React TS), `site/src/data/load.ts`, `site/src/lib/metrics.ts`, `site/src/lib/poisson.ts`, `site/src/state/scenario.ts`, `site/src/lib/metrics.test.ts`, `site/src/lib/poisson.test.ts`, `site/src/App.tsx` (tab shell + header with "NHTSA data as of", run date, warnings, and the Run update link `https://github.com/Apoorva87/autonomous-safety/actions/workflows/update.yml`)
 
 **Interfaces:**
 - `poisson.ci95(k: number): [lo: number, hi: number]`: exact (chi-square via the gamma inverse). `k=0` → `[0, 3.689]`.
 - `metrics.series(counts, exposure, scenario, opts: {program[], grain: "year"|"month", year?: number, metric: "per1k"|"perM"|"per10kVeh"|"milesPerCrash"|"count", countBy: "crashes"|"reports", severity?: ...}) -> Point[]`, where `Point = {period, k, kAdj, exposure: number|null, exposureKind, rate: number|null, lo, hi, lowSample: boolean, scenario: boolean}`.
 - `scenario.ts`: a `useScenario()` hook backed by URL query params. Fields: `windowFactor` (5 s capture factor, default 1 = SGO as-is), `teslaDenominator: "fleet"|"subscribers"|"ap_fleet"`, `estimates: Record<program, {milesPerVehicleYear: number, fleet: number}>`, `lagAdjust: boolean`, `lagMultiplier: number`, `countBy`, `includeOther: boolean`.
 
-- [ ] Step 1: Scaffold Vite React TS. Set `base: '/av-safety-dashboard/'`. Add echarts, @deck.gl/core/layers/react, maplibre-gl, vitest.
+- [ ] Step 1: Scaffold Vite React TS. Set `base: '/autonomous-safety/'`. Add echarts, @deck.gl/core/layers/react, maplibre-gl, vitest.
 - [ ] Step 2: Tests:
   - `ci95(0)[1]≈3.689`; `ci95(10)≈[4.795,18.39]`.
   - per1k = crashes/miles×1000; milesPerCrash = miles/crashes.
@@ -221,6 +221,6 @@
 
 ### Task 11: Publish
 
-- [ ] Step 1: `gh repo create Apoorva87/av-safety-dashboard --public --source . --push` (requires the owner's `gh auth refresh -s workflow`).
-- [ ] Step 2: `gh api -X POST repos/Apoorva87/av-safety-dashboard/pages -f build_type=workflow`; `gh workflow run update.yml`; watch the run.
-- [ ] Step 3: Open `https://apoorva87.github.io/av-safety-dashboard/` in the browser; check every tab loads with no console errors and the header shows today's NHTSA date.
+- [ ] Step 1: `gh repo create Apoorva87/autonomous-safety --public --source . --push` (requires the owner's `gh auth refresh -s workflow`).
+- [ ] Step 2: `gh api -X POST repos/Apoorva87/autonomous-safety/pages -f build_type=workflow`; `gh workflow run update.yml`; watch the run.
+- [ ] Step 3: Open `https://apoorva87.github.io/autonomous-safety/` in the browser; check every tab loads with no console errors and the header shows today's NHTSA date.

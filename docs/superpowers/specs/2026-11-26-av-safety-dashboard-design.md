@@ -84,8 +84,8 @@ Facts that shape the design:
 
 ## 5. Architecture
 
-Repo `av-safety-dashboard` (public, account Apoorva87) → GitHub Pages at
-`https://apoorva87.github.io/av-safety-dashboard/`.
+Repo `autonomous-safety` (public, account Apoorva87) → GitHub Pages at
+`https://apoorva87.github.io/autonomous-safety/`.
 
 ```
 pipeline/            Python 3.9+, standard library only (runs locally and in Actions, no installs)
@@ -193,7 +193,7 @@ disclosures, a new reporting entity, a > 50% month-over-month swing for a compan
 
 ## 10. Calls made by the builder (owner can override)
 
-- Repo name `av-safety-dashboard`, public, under Apoorva87; Pages from Actions.
+- Repo name `autonomous-safety`, public, under Apoorva87; Pages from Actions.
 - Python stdlib pipeline; Vite + React + TS + ECharts + deck.gl front end.
 - Monthly cron on the 20th (NHTSA refreshes around the 15th–16th).
 - Unique-crash counting (by Same Incident ID) by default; the report count is a toggle.
