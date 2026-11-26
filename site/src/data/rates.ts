@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Crash } from '../data';
 import type { CountsByMonth, ExposureRow, LagCurve, MonthCounts } from '../lib/metrics';
+import { CITY_REGION_BY_KEY } from '../lib/cities';
 
 // Loaders and scope helpers for the Rates tab. narratives.json is deliberately not loaded here.
 
@@ -17,7 +18,13 @@ export type CompanyRow = {
   unit: string; window: string; source_id: string; method_note: string; source_ids: string[];
 };
 
+export type InvestigationRow = {
+  investigation_id: string; company: string; type: string; subject: string; opened: string; closed: string | null;
+  status: string; url: string; vehicles_covered: number | null; source_ids: string[];
+};
+
 export type RatesData = {
+  investigations: InvestigationRow[];
   exposure: ExposureRow[];
   countRows: CountRow[];
   lag: Record<string, LagCurve>;
@@ -45,7 +52,9 @@ export function loadRatesData(): Promise<RatesData> {
     getJson<{ rows: SourceRow[] }>('sources.json'),
     getJson<{ rows: CompanyRow[] }>('company_reported.json'),
     getJson<{ last_month: string; entities: string[] }>('meta.json'),
-  ]).then(([e, c, l, ev, s, co, meta]) => ({
+    getJson<{ rows: InvestigationRow[] }>('investigations.json'),
+  ]).then(([e, c, l, ev, s, co, meta, inv]) => ({
+    investigations: inv.rows,
     exposure: e.rows,
     countRows: c.rows,
     lag: Object.fromEntries(Object.entries(l.programs).map(([k, v]) => [k, { days: l.days, cdf: v.cdf }])),
@@ -67,14 +76,18 @@ export function useRatesData(): { rates: RatesData | null; error: string | null 
   return { rates, error };
 }
 
-// ---- region scopes ----
+let invCache: Promise<InvestigationRow[]> | null = null;
+/** investigations.json alone (7 KB), for views that do not need the rest of the rates data. */
+export function useInvestigations(): InvestigationRow[] {
+  const [rows, setRows] = useState<InvestigationRow[]>([]);
+  useEffect(() => {
+    invCache ??= getJson<{ rows: InvestigationRow[] }>('investigations.json').then((r) => r.rows);
+    invCache.then(setRows, () => setRows([]));
+  }, []);
+  return rows;
+}
 
-const PHOENIX = ['Phoenix', 'Tempe', 'Chandler', 'Mesa', 'Scottsdale', 'Paradise Valley', 'Gilbert', 'Glendale'];
-const LA = ['Los Angeles', 'Beverly Hills', 'Culver City', 'Inglewood', 'Santa Monica', 'Venice', 'West Hollywood', 'Hollywood'];
-const BAY = [
-  'San Francisco', 'Daly City', 'Mountain View', 'Palo Alto', 'Redwood City', 'San Mateo', 'South San Francisco',
-  'Sunnyvale', 'San Jose', 'Oakland', 'Santa Clara', 'Menlo Park', 'Brisbane', 'Millbrae', 'San Bruno', 'Burlingame', 'Berkeley',
-];
+// ---- region scopes ----
 
 type Scope = { all: true } | { state: string; cities?: string[] };
 
@@ -86,20 +99,10 @@ export function scopeOf(region: string): Scope | null {
       return { all: true };
     case 'ca':
       return { state: 'CA' };
-    case 'city:phoenix':
-      return { state: 'AZ', cities: PHOENIX };
-    case 'city:los_angeles':
-      return { state: 'CA', cities: LA };
-    case 'city:san_francisco':
-      return { state: 'CA', cities: ['San Francisco'] };
-    case 'city:sf_bay_area':
-      return { state: 'CA', cities: BAY };
-    case 'city:austin':
-      return { state: 'TX', cities: ['Austin'] };
-    case 'city:atlanta':
-      return { state: 'GA', cities: ['Atlanta'] };
-    default:
-      return null;
+    default: {
+      const r = CITY_REGION_BY_KEY[region];
+      return r ? { state: r.state, cities: r.cities } : null;
+    }
   }
 }
 

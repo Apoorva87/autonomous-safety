@@ -5,6 +5,9 @@ import { ScatterplotLayer } from '@deck.gl/layers';
 import type { Crash, Data } from './data';
 import { fmt, humanize } from './data';
 import { SourceNote } from './EChart';
+import { LENSES, LENS_BY_ID } from './lib/lens';
+import { setQuery, useQuery } from './state/scenario';
+import { useInvestigations } from './data/rates';
 import {
   PROGRAMS,
   PROGRAM_BY_KEY,
@@ -153,6 +156,18 @@ export function Explorer({ data, mode }: { data: Data; mode: Mode }) {
   const [yKey, setYKey] = useState('severity');
   const [colorBy, setColorBy] = useState<ColorBy>('program');
   const [filters, setFilters] = useState<Filters>(emptyFilters);
+  const params = useQuery();
+  const lens = LENS_BY_ID[params.get('xl') ?? ''] ?? null;
+  const periodFrom = params.get('xf') ?? '';
+  const periodTo = params.get('xt') ?? '';
+  const progParam = params.get('xp') ?? '';
+  // Presets and the timeline set the program facet through the URL; apply it whenever those parameters change.
+  useEffect(() => {
+    const progs = lens ? lens.programs : progParam.split(',').filter((p) => PROGRAM_BY_KEY[p]);
+    if (progs.length) setFilters((prev) => ({ ...prev, program: new Set(progs) }));
+  }, [lens, progParam]);
+  const basePass = (c: Crash) =>
+    (!lens || lens.test(c)) && (!periodFrom || (c.month ?? '') >= periodFrom) && (!periodTo || (c.month ?? '9999') <= periodTo);
   const [hover, setHover] = useState<{ c: Crash; x: number; y: number } | null>(null);
   const [picked, setPicked] = useState<Crash | null>(null);
 
@@ -189,10 +204,11 @@ export function Explorer({ data, mode }: { data: Data; mode: Mode }) {
   const visible = useMemo(() => {
     const v = new Uint8Array(crashes.length);
     crashes.forEach((c, i) => {
-      v[i] = FACETS.every((f) => passes(c, f, filters[f.key])) ? 1 : 0;
+      v[i] = basePass(c) && FACETS.every((f) => passes(c, f, filters[f.key])) ? 1 : 0;
     });
     return v;
-  }, [crashes, filters]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [crashes, filters, lens, periodFrom, periodTo]);
   const shown = useMemo(() => visible.reduce((a, b) => a + b, 0), [visible]);
 
   // Facet value counts, with every other facet applied (standard cross-filter behavior).
@@ -201,13 +217,14 @@ export function Explorer({ data, mode }: { data: Data; mode: Mode }) {
     for (const f of FACETS) {
       const counts = new Map<string, number>();
       for (const c of crashes) {
-        if (!FACETS.every((g) => g.key === f.key || passes(c, g, filters[g.key]))) continue;
+        if (!basePass(c) || !FACETS.every((g) => g.key === f.key || passes(c, g, filters[g.key]))) continue;
         for (const v of f.get(c)) counts.set(v, (counts.get(v) ?? 0) + 1);
       }
       out[f.key] = counts;
     }
     return out;
-  }, [crashes, filters]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [crashes, filters, lens, periodFrom, periodTo]);
 
   // Facet values present anywhere in the data, so a chip stays visible when its count drops to 0.
   const facetValues = useMemo(() => {
@@ -254,7 +271,20 @@ export function Explorer({ data, mode }: { data: Data; mode: Mode }) {
       else next.add(v);
       return { ...prev, [fk]: next };
     });
-  const anyFilter = FACETS.some((f) => filters[f.key].size > 0);
+  const anyFilter = FACETS.some((f) => filters[f.key].size > 0) || !!lens || !!periodFrom || !!periodTo;
+  const clearAll = () => {
+    setFilters(emptyFilters());
+    setQuery({ xl: null, xf: null, xt: null, xp: null });
+  };
+  const months = data.counts.months;
+  const investigations = useInvestigations();
+  const lensInv = lens ? investigations.find((i) => i.investigation_id === lens.investigationId) : undefined;
+  const pickLens = (id: string | null) => {
+    const l = id ? LENS_BY_ID[id] : null;
+    setFilters(emptyFilters());
+    setQuery({ xl: id, xp: null, xf: null, xt: null });
+    if (l) setFilters({ ...emptyFilters(), program: new Set(l.programs) });
+  };
 
   const legend =
     colorBy === 'program'
@@ -293,15 +323,64 @@ export function Explorer({ data, mode }: { data: Data; mode: Mode }) {
             <option value="severity">Injury severity</option>
           </select>
         </label>
+        <label className="field">
+          <span>From month</span>
+          <select value={periodFrom} onChange={(e) => setQuery({ xf: e.target.value || null })}>
+            <option value="">Start</option>
+            {months.map((mo) => <option key={mo} value={mo}>{mo}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          <span>To month</span>
+          <select value={periodTo} onChange={(e) => setQuery({ xt: e.target.value || null })}>
+            <option value="">Latest</option>
+            {months.map((mo) => <option key={mo} value={mo}>{mo}</option>)}
+          </select>
+        </label>
         <p className="count" aria-live="polite" data-testid="shown-count">
           <b>{fmt(shown)}</b> of {fmt(crashes.length)} crashes shown
           {anyFilter && (
-            <button className="link" onClick={() => setFilters(emptyFilters())}>
+            <button className="link" onClick={clearAll}>
               Clear filters
             </button>
           )}
         </p>
       </div>
+
+      <div className="lens" role="group" aria-label="Investigation lens presets">
+        <span className="lens-label">Investigation lens</span>
+        {LENSES.map((l) => (
+          <button
+            key={l.id} type="button" className={lens?.id === l.id ? 'fchip on' : 'fchip'} aria-pressed={lens?.id === l.id}
+            onClick={() => pickLens(lens?.id === l.id ? null : l.id)}
+          >
+            {l.investigationId}: {l.title}
+          </button>
+        ))}
+      </div>
+      {lens && (
+        <div className="callout lens-note" role="note">
+          <p className="small">
+            <b>Approximation.</b> This is <em>not</em> the case list of NHTSA investigation {lens.investigationId}; it is the nearest set of crashes the SGO's structured fields
+            can describe. {lens.rule}
+          </p>
+          {lensInv ? (
+            <p className="small">
+              {lensInv.investigation_id} ({lensInv.type}, {lensInv.company}): {lensInv.subject}. Opened {lensInv.opened}, {lensInv.closed ? `closed ${lensInv.closed}` : 'still open'}
+              {lensInv.vehicles_covered != null ? `; about ${fmt(lensInv.vehicles_covered)} vehicles covered` : ''}.{' '}
+              {/^https?:\/\//i.test(lensInv.url) && <a href={lensInv.url} target="_blank" rel="noopener noreferrer">NHTSA document</a>}{' '}
+              <a href="#timeline">See it on the timeline</a>
+            </p>
+          ) : (
+            <p className="small">Looking up {lens.investigationId} in investigations.json…</p>
+          )}
+        </div>
+      )}
+      {(periodFrom || periodTo) && (
+        <p className="small" role="note">
+          Period filter: {periodFrom || 'start'} to {periodTo || 'latest'}. Months are the incident month; reports for the latest months are still arriving.
+        </p>
+      )}
 
       <div className="explorer">
         <aside className="facets" aria-label="Filters">

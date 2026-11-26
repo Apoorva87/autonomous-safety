@@ -46,7 +46,7 @@ const WHY: Record<string, string> = {
   other_l2: 'Other reporters: no exposure data is collected; only counts are available.',
 };
 
-function defaultRegion(rates: RatesData, program: string, metric: Metric): string {
+export function defaultRegion(rates: RatesData, program: string, metric: Metric): string {
   if (program.startsWith('entity:')) return 'us';
   const regs = regionsFor(rates.exposure, program);
   const has = (r: string, m: string) => rates.exposure.some((x) => x.program === program && x.region === r && x.metric === m);
