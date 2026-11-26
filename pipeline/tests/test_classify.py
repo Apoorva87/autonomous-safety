@@ -74,6 +74,15 @@ class IntersectionTests(unittest.TestCase):
         for text in ("Failed to stop at the stop sign.", "The traffic signal was green."):
             self.assertIn(("intersection_signal", "narrative", "INT-2"), tags(rec(narrative=text)))
 
+    def test_plurals(self):
+        for text in ("Both traffic signals were out.", "two traffic lights", "ignored red lights",
+                     "past several stop signs", "near the stoplights", "missed stop lights"):
+            self.assertIn(("intersection_signal", "narrative", "INT-2"), tags(rec(narrative=text)), text)
+
+    def test_multiword_keywords_tolerate_whitespace(self):
+        for text in ("failed at the stop\nsign", "ran a red  light", "traffic\t signal", "stop \n sign"):
+            self.assertIn(("intersection_signal", "narrative", "INT-2"), tags(rec(narrative=text)), text)
+
     def test_turn_signal_is_not_a_traffic_signal(self):
         self.assertEqual(tags(rec(narrative="The SV used its turn signal.")), set())
 
@@ -101,8 +110,17 @@ class VisibilityTests(unittest.TestCase):
     def test_benign_weather(self):
         self.assertEqual(tags(rec(weather=["clear", "cloudy", "partly_cloudy", "unknown"])), set())
 
+    def test_bare_sun_does_not_tag(self):
+        for text in ("It was Sunday.", "A sunny day.", "Turned onto Sun Valley Rd.", "Sun Valley Rd"):
+            self.assertEqual(tags(rec(narrative=text)), set(), text)
+
+    def test_sun_phrases_tag(self):
+        for text in ("Sun glare ahead", "into the setting sun", "the sun was low", "low sun",
+                     "sun  in the eyes", "direct sun", "rising sun", "strong sunlight"):
+            self.assertIn(("visibility_glare", "narrative", "VIS-3"), tags(rec(narrative=text)), text)
+
     def test_narrative_glare(self):
-        for text in ("Sun glare blinded the safety driver.", "low visibility", "The sun was low."):
+        for text in ("Sun glare blinded the safety driver.", "low visibility", "Glare from the road."):
             self.assertIn(("visibility_glare", "narrative", "VIS-3"), tags(rec(narrative=text)), text)
 
 
@@ -129,7 +147,7 @@ class StationaryHazardTests(unittest.TestCase):
             self.assertIn(("stationary_hazard", "field", "HAZ-1"), tags(r), cp)
 
     def test_sv_not_moving_does_not_trigger_haz1(self):
-        for sv in ("stopped", "parked", "unknown", None):
+        for sv in ("stopped", "parked", "unknown", "other", None):
             r = rec(sv_movement=sv, cp_movement="stopped")
             self.assertNotIn("stationary_hazard", tag_names(r), sv)
 
@@ -199,8 +217,17 @@ class DedupeTests(unittest.TestCase):
         self.assertEqual([(t["t"], t["basis"], t["rule"]) for t in out],
                          [("intersection_signal", "field", "INT-1")])
 
-    def test_field_preferred_over_narrative_regardless_of_order(self):
-        # Narrative hit exists; field hit exists in a later rule ID of the same tag.
+    def test_field_rules_precede_narrative_rules_per_tag(self):
+        # tag() keeps the first hit in RULES order, so this ordering is what
+        # makes a field basis win over a narrative basis for the same tag.
+        seen_narrative = set()
+        for rule in classify.RULES:
+            if rule["basis"] == "narrative":
+                seen_narrative.add(rule["t"])
+            else:
+                self.assertNotIn(rule["t"], seen_narrative, rule["id"])
+
+    def test_field_basis_wins_when_narrative_also_matches(self):
         r = rec(crash_with="pedestrian", narrative="a pedestrian")
         self.assertEqual(tags(r), {("vru", "field", "VRU-1")})
 

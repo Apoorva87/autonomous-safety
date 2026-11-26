@@ -13,23 +13,27 @@ RULES is the published rule table (id, t, basis, description) shown on the Data
 tab. The descriptions embed the keyword lists below, so the page cannot drift
 from the code. The matching functions live in _MATCHERS, keyed by rule ID.
 
-Dedupe: if several rules give the same tag, a field-basis rule wins over a
-narrative-basis rule; among rules of the same basis the first in RULES order
-wins. One entry per tag is recorded.
+Dedupe: if several rules give the same tag, the first hit in RULES order wins
+and one entry per tag is recorded. RULES lists every field rule of a tag before
+its narrative rules, so a field basis is always preferred over a narrative one
+(a test asserts this ordering).
 """
 import re
 
 # ----------------------------------------------------------- keyword lists
-# Matched case-insensitively with word boundaries (\bkeyword\b). Multi-word
-# entries must appear as written, with single spaces. Plurals are listed
-# explicitly. "signal" alone is deliberately absent: it would match "turn signal".
+# Matched case-insensitively with word boundaries (\bkeyword\b). Spaces inside
+# a multi-word entry match any run of whitespace (double space, newline).
+# Plurals are listed explicitly. "signal" alone is deliberately absent: it would
+# match "turn signal". Bare "sun" is absent too: it would match "Sun Valley Rd".
 INT_KEYWORDS = (
-    "red light", "traffic light", "traffic signal", "stop light", "stoplight",
-    "stop sign", "signalized", "ran a light", "ran the light", "run a light",
-    "run the light",
+    "red light", "red lights", "traffic light", "traffic lights", "traffic signal",
+    "traffic signals", "stop light", "stop lights", "stoplight", "stoplights",
+    "stop sign", "stop signs", "signalized", "ran a light", "ran the light",
+    "run a light", "run the light",
 )
 VIS_KEYWORDS = (
-    "glare", "sun", "sunlight", "blinded", "blinding", "low visibility", "poor visibility",
+    "glare", "sun glare", "sunlight", "sun in", "setting sun", "rising sun", "low sun",
+    "the sun", "direct sun", "blinded", "blinding", "low visibility", "poor visibility",
 )
 HAZ_KEYWORDS = (
     "debris", "stalled", "emergency vehicle", "emergency vehicles", "cone", "cones",
@@ -45,12 +49,13 @@ VIS_LIGHTING = ("dark_unlit", "dark_unknown", "dawn_dusk")
 VIS_WEATHER = ("fog", "rain", "snow", "dust_storm")
 FIXED_OBJECTS = ("fixed_object", "pole_tree")
 HAZARD_CRASH_WITH = ("fixed_object", "pole_tree", "first_responder_vehicle")
-NOT_MOVING = ("stopped", "parked", "unknown", None)
+NOT_MOVING = ("stopped", "parked", "unknown", "other", None)
 VRU_CRASH_WITH = ("pedestrian", "cyclist", "scooter_skateboard", "non_motorist_other")
 
 
 def _compile(words):
-    return re.compile(r"\b(?:" + "|".join(re.escape(w) for w in words) + r")\b", re.IGNORECASE)
+    phrases = (r"\s+".join(re.escape(part) for part in w.split()) for w in words)
+    return re.compile(r"\b(?:" + "|".join(phrases) + r")\b", re.IGNORECASE)
 
 
 NARRATIVE_KEYWORDS = {
@@ -104,7 +109,7 @@ RULES = [
     {
         "id": "HAZ-1", "t": "stationary_hazard", "basis": "field",
         "description": "Subject vehicle was moving (movement is anything except stopped, "
-                       "parked, unknown or blank) and the crash partner was stopped or parked.",
+                       "parked, unknown, other or blank) and the crash partner was stopped or parked.",
     },
     {
         "id": "HAZ-2", "t": "stationary_hazard", "basis": "field",
@@ -180,13 +185,10 @@ _MATCHERS = {
 
 
 def tag(record):
-    """Tags for one Record: one entry per tag name, field basis preferred."""
-    chosen = {}  # t -> rule dict; insertion order follows RULES
+    """Tags for one Record: one entry per tag name, first hit in RULES order."""
+    chosen = {}  # t -> first matching rule in RULES order
     for rule in RULES:
-        if not _MATCHERS[rule["id"]](record):
-            continue
-        current = chosen.get(rule["t"])
-        if current is None or (current["basis"] == "narrative" and rule["basis"] == "field"):
+        if rule["t"] not in chosen and _MATCHERS[rule["id"]](record):
             chosen[rule["t"]] = rule
     return [{"t": t, "basis": r["basis"], "rule": r["id"]} for t, r in chosen.items()]
 
