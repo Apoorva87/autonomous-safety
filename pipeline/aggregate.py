@@ -67,8 +67,11 @@ RECORD_FIELDS = [
     "lighting", "weather", "speed_mph", "speed_limit", "speed_band", "crash_with",
     "cp_movement", "sv_movement", "severity", "hospitalized", "airbag", "towed",
     "within_odd", "narrative_redacted", "version_redacted", "tags",
+    "sv_contact_areas", "cp_contact_areas",
 ]
 _RECORD_SOURCE = {"id": "report_id"}
+# List-valued fields that may be absent on older fixtures; absent means an empty list.
+_LIST_FIELDS = {"sv_contact_areas", "cp_contact_areas"}
 
 # Transparency fields: (field, only_era). only_era restricts the denominator to
 # reports from an era that collects the field, so "not collected" is not "unknown".
@@ -116,7 +119,10 @@ def build_records(crashes):
     rows = []
     for rep, n in crashes:
         values = dict(rep, n_reports=n, tags=tag_strings(rep))
-        rows.append([values[_RECORD_SOURCE.get(f, f)] for f in RECORD_FIELDS])
+        rows.append([
+            values.get(_RECORD_SOURCE.get(f, f), []) if f in _LIST_FIELDS else values[_RECORD_SOURCE.get(f, f)]
+            for f in RECORD_FIELDS
+        ])
     return {"fields": RECORD_FIELDS, "rows": rows}
 
 
