@@ -1,0 +1,62 @@
+[
+  {
+    "key": "current_ADS",
+    "url": "https://static.nhtsa.gov/odi/ffdd/sgo-2021-01/SGO-2021-01_Incident_Reports_ADS.csv",
+    "retrieved_at": "2026-11-26T21:28:45Z",
+    "last_modified": "Mon, 16 Nov 2026 13:31:10 GMT",
+    "etag": "\"c5f7afebf8469963f34d2425ae9e56db\"",
+    "sha256": "326809a7d3753dfd573c3a1ae4084eb3b18587970d083d589fa6fb0b5e9181f7",
+    "bytes": 3132623,
+    "rows": 1792
+  },
+  {
+    "key": "current_ADAS",
+    "url": "https://static.nhtsa.gov/odi/ffdd/sgo-2021-01/SGO-2021-01_Incident_Reports_ADAS.csv",
+    "retrieved_at": "2026-11-26T21:28:45Z",
+    "last_modified": "Mon, 16 Nov 2026 13:31:09 GMT",
+    "etag": "\"1845e58db4679e24aa35dd3b5d847401\"",
+    "sha256": "427fa7a0a4f62d8b8f6859589e0eb8172b8cac69086566f70b83a9d40cc817bb",
+    "bytes": 2760225,
+    "rows": 2866
+  },
+  {
+    "key": "current_OTHER",
+    "url": "https://static.nhtsa.gov/odi/ffdd/sgo-2021-01/SGO-2021-01_Incident_Reports_OTHER.csv",
+    "retrieved_at": "2026-11-26T21:28:46Z",
+    "last_modified": "Mon, 16 Nov 2026 13:31:10 GMT",
+    "etag": "\"3b7bdeb9c3113ec672c5056961c58f50\"",
+    "sha256": "d8331c51540c77d92c5b8d3df0f9e3b814531a9efefb26753f67d5dc0f7b697a",
+    "bytes": 35399,
+    "rows": 34
+  },
+  {
+    "key": "archive_ADS",
+    "url": "https://static.nhtsa.gov/odi/ffdd/sgo-2021-01/Archive-2021-2025/SGO-2021-01_Incident_Reports_ADS.csv",
+    "retrieved_at": "2026-11-26T21:28:46Z",
+    "last_modified": "Thu, 26 Mar 2026 20:12:34 GMT",
+    "etag": "\"e1b66d9b9c994376110f63052a57ab36\"",
+    "sha256": "cb2b38a21e2ce5c2337dfa0cffe8d6fce5e422cf93fe4c78942eec5cf72f41ba",
+    "bytes": 3943732,
+    "rows": 2295
+  },
+  {
+    "key": "archive_ADAS",
+    "url": "https://static.nhtsa.gov/odi/ffdd/sgo-2021-01/Archive-2021-2025/SGO-2021-01_Incident_Reports_ADAS.csv",
+    "retrieved_at": "2026-11-26T21:28:47Z",
+    "last_modified": "Thu, 26 Mar 2026 20:12:33 GMT",
+    "etag": "\"4f203c2495c107753c7a9345d3c800d1\"",
+    "sha256": "99579d4c9add8f2fd0adfcff9199210fee8aaf9cbaf64347fd7adbb4446b6f5e",
+    "bytes": 4092534,
+    "rows": 4027
+  },
+  {
+    "key": "archive_OTHER",
+    "url": "https://static.nhtsa.gov/odi/ffdd/sgo-2021-01/Archive-2021-2025/SGO-2021-01_Incident_Reports_OTHER.csv",
+    "retrieved_at": "2026-11-26T21:28:48Z",
+    "last_modified": "Tue, 12 Aug 2025 13:28:43 GMT",
+    "etag": "\"49600d98956acb1ef62af7e545f711ed\"",
+    "sha256": "2464171f22671aa52047ed2e32a3442801ac85d4409f692acea3bf8c6c250899",
+    "bytes": 1155114,
+    "rows": 3598
+  }
+]
