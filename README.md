@@ -155,6 +155,20 @@ Anyone is welcome to pick these up.
   narrative where not redacted). Plan: a rules-based first pass on structured fields, then an
   LLM pass for narratives, stored in a versioned `labels` table with model, prompt version,
   rationale and evidence fields; labels never overwrite source data.
+- **Responsibility ("who was at fault") lens.** NHTSA records no fault field, so this is an *inference*,
+  always labeled with its evidence basis and confidence, never presented as a finding of fault.
+  Outputs: other party / automated system / human driver (Level 2 only) / indeterminate. Pass 1:
+  rules on structured fields (SV/CP contact areas, pre-crash movements, speed, crash-with, engagement).
+  Pass 2: an LLM reads narratives where they are not redacted (Waymo, Zoox, Cruise; almost none
+  for Tesla) and is used to calibrate and audit pass 1. For Level 2 programs, driver vs. system cannot
+  be separated from NHTSA data; the lens says so rather than guessing. Stored in the `labels` table.
+- **More compound views (planned tabs):** exposure learning curves (rate vs cumulative miles); a car-outline
+  impact heatmap (contact areas by program, filterable by speed and severity); a movement → partner →
+  contact → severity → inferred-responsibility Sankey; per-city rates (SGO city counts joined with
+  Waymo's per-city miles); a timeline overlay of launches, recalls, investigations and rule changes on rate
+  curves; company-reported vs. NHTSA-derived rates side by side with the 5 s / 30 s window gap shown;
+  an "investigation lens" that filters the explorer to the scenario a probe describes (e.g. EA26002 reduced
+  visibility); redaction-aware uncertainty bounds (e.g. Tesla's ~94% unknown injury severity).
 - **Statistical views:** exact Poisson intervals on every rate, funnel plots for comparing companies with very
   different volumes, reporting-lag correction, low-sample warnings (e.g. GM after Cruise's shutdown).
 - **Interactive and WebGL views:** a crash explorer (every incident a point, selectable axes,
