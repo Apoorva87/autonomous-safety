@@ -1,0 +1,14 @@
+company,program,metric,expected_every_days,last_period
+tesla,tesla_l2,cum_miles,92,2026-10-22
+tesla,tesla_l2,subscribers,92,2026-09-30
+tesla,tesla_l2,active_vehicles,92,2026-09-30
+tesla,tesla_l2,fsd_r12m_miles_per_major_collision,92,2026-Q3
+tesla,tesla_robotaxi,cum_miles,92,2026-10-18
+waymo,waymo_ads,cum_miles,92,2026-06-30
+waymo,waymo_ads,serious_injury_or_worse_crash_pct_diff_vs_benchmark,92,2026-06-30
+waymo,waymo_ads,active_vehicles,183,2026-11-20
+gm,gm_supercruise,cum_miles,183,2026-10-21
+gm,gm_supercruise,subscribers,365,2025-12-31
+gm,gm_cruise_ads,cum_miles,3650,2023-10-24
+zoox,zoox_ads,active_vehicles,365,2026-07-10
+zoox,zoox_ads,miles,365,2024

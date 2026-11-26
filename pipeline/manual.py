@@ -15,12 +15,14 @@ load() refuses the whole set if anything does not check out. Tables:
   disclosure_cadence.csv  how often each disclosure is expected (stale flags)
 
 The `region` column says what geography a figure covers: "global" (all
-markets the company counts), a two-letter US state or "us", or
-"city:<slug>". SGO crash counts are US-only, so a denominator for them needs
+markets the company counts), "north_america", a two-letter US state or "us",
+or "city:<slug>". SGO crash counts are US-only, so a denominator for them needs
 region "us" (or a global figure explicitly labelled as such).
 
-`source_id` names one source. A derived or estimate row may combine several
-inputs and then lists every source it used, separated by ";".
+`source_id` names one source. A derived or estimate exposure row may combine
+several inputs and then lists every source it used, separated by ";"; so may
+company_reported, investigations and events rows. Each loaded row carries the
+parsed list as `source_ids`.
 """
 import csv
 import math
@@ -86,7 +88,7 @@ EVENT_TYPES = ("regulatory", "launch", "suspension", "recall", "reporting_change
 _NUMBER = re.compile(r"-?\d+(\.\d+)?")
 _SOURCE_ID = re.compile(r"[a-z0-9_]+")
 _METRIC_SLUG = re.compile(r"[a-z0-9_]+")
-_REGION = re.compile(r"global|[a-z]{2}|city:[a-z0-9_]+")
+_REGION = re.compile(r"global|north_america|[a-z]{2}|city:[a-z0-9_]+")
 _YEAR = re.compile(r"(\d{4})")
 _QUARTER = re.compile(r"(\d{4})-Q([1-4])")
 _MONTH = re.compile(r"(\d{4})-(\d{2})")
@@ -246,7 +248,10 @@ def _period_fields(ctx, row):
     if not _period_ok(row["period"], row["period_type"]):
         ctx.fail(f"period {row['period']!r} does not match period_type {row['period_type']!r}")
     if not _REGION.fullmatch(row["region"]):
-        ctx.fail(f"region {row['region']!r} must be 'global', a 2-letter code or 'city:<slug>'")
+        ctx.fail(
+            f"region {row['region']!r} must be 'global', 'north_america', a 2-letter code "
+            "or 'city:<slug>'"
+        )
 
 
 def _exposure(rows, known):
@@ -320,8 +325,8 @@ def _investigations(rows, known):
         )
         if isinstance(vehicles, float):
             ctx.fail(f"vehicles_covered {row['vehicles_covered']!r} must be a whole number")
-        _source_ids(ctx, row["source_id"], known, single=True)
-        out.append(dict(row, vehicles_covered=vehicles))
+        ids = _source_ids(ctx, row["source_id"], known, single=False)
+        out.append(dict(row, vehicles_covered=vehicles, source_ids=ids))
     return out
 
 
@@ -334,8 +339,8 @@ def _events(rows, known):
         _company_program(ctx, row, allow_all=True, allow_blank_program=True)
         if row["type"] not in EVENT_TYPES:
             ctx.fail(f"type {row['type']!r} must be one of {EVENT_TYPES}")
-        _source_ids(ctx, row["source_id"], known, single=False)
-        out.append(row)
+        ids = _source_ids(ctx, row["source_id"], known, single=False)
+        out.append(dict(row, source_ids=ids))
     return out
 
 

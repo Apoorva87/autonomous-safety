@@ -1,0 +1,21 @@
+investigation_id,company,opened,closed,status,type,subject,vehicles_covered,url,source_id
+PE16007,tesla,2016-06-28,2017-01-19,closed,PE,Automatic vehicle control systems,25000,https://static.nhtsa.gov/odi/inv/2016/INOA-PE16007-7080.PDF,nhtsa_flat_inv;nhtsa_odi_pe16007_open
+PE21020,tesla,2021-08-13,2022-06-08,closed,PE,Autopilot & First Responder Scenes,830000,https://static.nhtsa.gov/odi/inv/2021/INCLA-PE21020-5483.PDF,nhtsa_flat_inv;nhtsa_odi_pe21020_close
+EA22002,tesla,2022-06-08,2024-04-25,closed,EA,Autopilot System Driver Controls,2031220,https://static.nhtsa.gov/odi/inv/2022/INCLA-EA22002-14498.pdf,nhtsa_flat_inv;nhtsa_odi_ea22002_close
+PE22002,tesla,2022-02-16,2026-06-29,closed,PE,Unexpected Brake Activation,695000,https://static.nhtsa.gov/odi/inv/2022/INCLA-PE22002-25796.pdf,nhtsa_flat_inv;nhtsa_odi_pe22002_close
+RQ24009,tesla,2024-04-25,,open,RQ,Recall 23V838 Remedy Effectiveness,2031220,https://static.nhtsa.gov/odi/inv/2024/INOA-RQ24009-12046.pdf,nhtsa_flat_inv;nhtsa_odi_rq24009_open
+PE24031,tesla,2024-10-17,2026-03-18,closed,PE,FSD Collisions in Reduced Roadway Visibility Conditions,2410002,https://static.nhtsa.gov/odi/inv/2024/INCLA-PE24031-87755.pdf,nhtsa_flat_inv;nhtsa_odi_pe24031_close
+EA26002,tesla,2026-03-18,,open,EA,FSD Collisions in Reduced Roadway Visibility Conditions,3203754,https://static.nhtsa.gov/odi/inv/2026/INOA-EA26002-10023.pdf,nhtsa_flat_inv;nhtsa_odi_ea26002_open
+PE24033,tesla,2025-01-06,2026-04-03,closed,PE,Actually Smart Summon sessions resulting in low-speed impacts.,2585000,https://static.nhtsa.gov/odi/inv/2024/INCLA-PE24033-87838.pdf,nhtsa_flat_inv;nhtsa_odi_pe24033_close
+PE25012,tesla,2025-10-07,,open,PE,"Traffic safety violations while Full Self Driving (""FSD"") is engaged",2882566,https://static.nhtsa.gov/odi/inv/2025/INOA-PE25012-19171.pdf,nhtsa_flat_inv;nhtsa_odi_pe25012_open
+AQ25002,tesla,2025-08-20,,open,AQ,Compliance with Standing General Order 2021-01 Reporting Requirements,2600000,https://static.nhtsa.gov/odi/inv/2025/INOA-AQ25002-18184.pdf,nhtsa_flat_inv;nhtsa_odi_aq25002_open
+DP26010,tesla,2026-10-09,,open,DP,Exceeds posted speed limits in active school zones,1000,https://static.nhtsa.gov/odi/inv/2026/INOA-DP26010-19159.pdf,nhtsa_flat_inv;nhtsa_odi_dp26010_open
+AQ26002,tesla,2026-09-03,,open,AQ,Tesla Cybercab FMVSS Certification,1000,https://static.nhtsa.gov/odi/inv/2026/INOA-AQ26002-17078.pdf,nhtsa_flat_inv;nhtsa_odi_aq26002_open
+PE22014,gm,2022-12-12,2024-08-20,closed,PE,Automated Driving System (ADS),1194,https://static.nhtsa.gov/odi/inv/2022/INCLA-PE22014-10746.pdf,nhtsa_flat_inv;nhtsa_odi_pe22014_close
+PE23018,gm,2023-10-16,2025-01-14,closed,PE,Automated Driving System,950,https://static.nhtsa.gov/odi/inv/2023/INCLA-PE23018-11022.pdf,nhtsa_flat_inv;nhtsa_odi_pe23018_close
+PE24016,waymo,2024-05-13,2025-07-22,closed,PE,Unexpected ADS behavior,1212,https://static.nhtsa.gov/odi/inv/2024/INCLA-PE24016-72139.pdf,nhtsa_flat_inv;nhtsa_odi_pe24016_close
+PE25013,waymo,2025-10-17,2026-11-06,closed,PE,Waymo AVs drive around stopped school buses with lights flashing and stop arm extended,2000,https://static.nhtsa.gov/odi/inv/2025/INOA-PE25013-23069.pdf,nhtsa_flat_inv;nhtsa_odi_pe25013_open
+PE26001,waymo,2026-01-29,,open,PE,Waymo AV  striking a child in the area of a school.,3067,https://static.nhtsa.gov/odi/inv/2026/INOA-PE26001-10005.pdf,nhtsa_flat_inv;nhtsa_odi_pe26001_open
+RQ26006,waymo,2026-11-06,,open,RQ,Effectiveness of recall remedy for Waymo AVs passing stopped school buses,,https://static.nhtsa.gov/odi/inv/2026/INOA-RQ26006-19477.pdf,nhtsa_flat_inv;nhtsa_odi_rq26006_open
+PE24015,zoox,2024-05-10,2025-03-31,closed,PE,Rear-end Collisions Involving Zoox Vehicles,258,https://static.nhtsa.gov/odi/inv/2024/INCLA-PE24015-61560.pdf,nhtsa_flat_inv;nhtsa_odi_pe24015_close
+AQ23001,zoox,2023-03-03,2025-08-04,closed,AQ,Certification,64,https://static.nhtsa.gov/odi/inv/2023/INCLA-AQ23001-11826.pdf,nhtsa_flat_inv;nhtsa_odi_aq23001_close

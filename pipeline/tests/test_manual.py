@@ -213,6 +213,10 @@ class ManualLoadTests(unittest.TestCase):
         self.fx.tables["exposure"][0]["region"] = "city:san_francisco"
         self.load()
 
+    def test_exposure_north_america_region_ok(self):
+        self.fx.tables["exposure"][0]["region"] = "north_america"
+        self.load()
+
     def test_derived_and_estimate_rows_need_method_note(self):
         for kind in ("derived", "estimate"):
             with self.subTest(kind=kind):
@@ -302,6 +306,12 @@ class ManualLoadTests(unittest.TestCase):
         self.fx.tables["investigations"].append(dict(INVESTIGATION))
         self.assertRaisesManual("investigations.csv", "duplicate")
 
+    def test_investigation_may_cite_flat_file_and_resume(self):
+        self.fx.tables["sources"].append(dict(SOURCE, source_id="src_b"))
+        self.fx.tables["investigations"][0]["source_id"] = "src_a;src_b"
+        data = self.load()
+        self.assertEqual(data["investigations"][0]["source_ids"], ["src_a", "src_b"])
+
     def test_investigation_vehicles_covered_may_be_blank(self):
         self.fx.tables["investigations"][0]["vehicles_covered"] = ""
         data = self.load()
@@ -356,6 +366,37 @@ class ManualLoadTests(unittest.TestCase):
         data = self.load()
         self.assertEqual(data["exposure"][0]["company"], "waymo")
         self.assertEqual(data["exposure"][0]["value"], 42)
+
+
+class CuratedDataTests(unittest.TestCase):
+    """The committed data/manual tables load and contain the must-have rows."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.data = manual.load()
+
+    def test_owner_named_investigations_present(self):
+        inv = {r["investigation_id"]: r for r in self.data["investigations"]}
+        self.assertEqual(inv["PE25012"]["company"], "tesla")
+        self.assertIn("Full Self Driving", inv["PE25012"]["subject"])
+        self.assertEqual(inv["EA26002"]["type"], "EA")
+        self.assertEqual(inv["EA26002"]["opened"], "2026-03-18")
+
+    def test_third_amended_sgo_event_present(self):
+        dates = {(e["date"], e["type"]) for e in self.data["events"]}
+        self.assertIn(("2025-06-16", "reporting_change"), dates)
+        self.assertIn(("2021-06-29", "regulatory"), dates)
+
+    def test_tesla_vsr_quarters_complete(self):
+        quarters = {r["period"] for r in self.data["company_reported"]
+                    if r["metric"] == "vsr_miles_per_crash_autopilot"}
+        self.assertEqual(len(quarters), 29)
+        self.assertIn("2018-Q3", quarters)
+        self.assertIn("2025-Q3", quarters)
+
+    def test_every_company_has_exposure(self):
+        companies = {r["company"] for r in self.data["exposure"]}
+        self.assertEqual(companies, {"tesla", "gm", "waymo", "zoox"})
 
 
 if __name__ == "__main__":
