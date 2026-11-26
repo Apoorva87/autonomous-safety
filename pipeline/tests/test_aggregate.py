@@ -7,7 +7,7 @@ from pathlib import Path
 
 import support
 from pipeline import aggregate as agg
-from pipeline import classify, golden, manual
+from pipeline import classify, golden, manual, validate
 
 TODAY = datetime.date(2026, 11, 26)
 EMPTY_MANUAL = {name: [] for name in manual.FILES}
@@ -39,11 +39,11 @@ def tables_of(reports, **extra):
 
 
 def counts_rows(reports):
-    return agg.build_counts(agg.unique_crashes(agg.current_reports(tables_of(reports))))["rows"]
+    return agg.build_counts(agg.current_reports(tables_of(reports)))["rows"]
 
 
 class CountTests(unittest.TestCase):
-    def test_two_reports_of_one_incident_are_one_crash_with_the_higher_severity(self):
+    def test_incident_in_records_has_the_higher_severity_and_n_reports(self):
         reports = [
             rec("1", "K", "minor"),
             rec("2", "K", "serious", program="gm_cruise_ads"),
@@ -59,13 +59,54 @@ class CountTests(unittest.TestCase):
         self.assertEqual(by_key["K"][1], 2)
         self.assertEqual(by_key["J"][0]["severity"], "none")  # a known severity beats unknown
 
-        rows = counts_rows(reports)
-        cruise = [r for r in rows if r["program"] == "gm_cruise_ads"]
-        self.assertEqual(len(cruise), 1)
-        self.assertEqual((cruise[0]["reports"], cruise[0]["crashes"], cruise[0]["serious_plus"], cruise[0]["injury"]), (2, 1, 1, 1))
-        self.assertEqual(cruise[0]["fatal"], 0)
-        self.assertEqual(sum(r["crashes"] for r in rows), 3)
-        self.assertEqual(sum(r["reports"] for r in rows), 5)
+    def test_two_reports_of_one_incident_in_one_program_are_one_crash_with_the_higher_severity(self):
+        rows = counts_rows([rec("1", "K", "minor"), rec("2", "K", "serious")])
+        self.assertEqual(len(rows), 1)
+        r = rows[0]
+        self.assertEqual((r["reports"], r["crashes"], r["serious_plus"], r["injury"], r["fatal"]), (2, 1, 1, 1, 0))
+
+    def test_cross_program_incident_counts_once_under_each_program(self):
+        reports = [
+            rec("1", "K", "minor", program="waymo_ads", month="2025-01"),
+            rec("2", "K", "serious", program="other_ads", month="2025-02", kind="ADAS"),
+            rec("3", "J", "none", program="waymo_ads", month="2025-01"),
+        ]
+        by_program = {}
+        for r in counts_rows(reports):
+            by_program.setdefault(r["program"], []).append(r)
+        waymo, other = by_program["waymo_ads"], by_program["other_ads"]
+        self.assertEqual((sum(r["crashes"] for r in waymo), sum(r["crashes"] for r in other)), (2, 1))
+        # reports land in each report's own program, month and file
+        self.assertEqual([(r["month"], r["file"], r["reports"]) for r in other], [("2025-02", "ADAS", 1)])
+        self.assertEqual([(r["month"], r["file"], r["reports"]) for r in waymo], [("2025-01", "ADS", 2)])
+        # severity per program is the max of that program's OWN reports of the incident
+        self.assertEqual((waymo[0]["serious_plus"], waymo[0]["injury"]), (0, 1))  # minor, not the other program's serious
+        self.assertEqual((other[0]["serious_plus"], other[0]["injury"]), (1, 1))
+        # the grand total is the unique incidents, kept separately; crashes are not additive across programs
+        counts = agg.build_counts(agg.current_reports(tables_of(reports)))
+        self.assertEqual(counts["unique_incidents"], 2)
+        self.assertEqual(sum(r["crashes"] for r in counts["rows"]), 3)
+        self.assertTrue(any("must not be summed" in n for n in counts["notes"]))
+
+    def test_per_program_severity_is_the_max_of_the_programs_own_reports(self):
+        reports = [
+            rec("1", "K", "minor", program="waymo_ads", month="2025-01"),
+            rec("2", "K", "fatal", program="waymo_ads", month="2025-03"),
+            rec("3", "K", "none", program="other_ads", month="2025-01"),
+        ]
+        rows = {r["program"]: r for r in counts_rows(reports)}
+        self.assertEqual(rows["waymo_ads"]["fatal"], 1)  # the fatal report sits in 2025-03
+        self.assertEqual(rows["waymo_ads"]["month"], "2025-03")
+        self.assertEqual(rows["other_ads"]["fatal"], 0)
+        self.assertEqual(sum(r["reports"] for r in counts_rows(reports) if r["program"] == "waymo_ads"), 2)
+
+    def test_lag_reports_match_counts_reports_per_program(self):
+        reports = [rec("1", "a", lag_days=3), rec("2", "b", lag_days=None), rec("3", "c", program="other_ads", lag_days=9)]
+        current = agg.current_reports(tables_of(reports))
+        lag = agg.build_lag(current)["programs"]
+        for program, entry in lag.items():
+            self.assertEqual(entry["n_reports"], sum(r["reports"] for r in agg.build_counts(current)["rows"] if r["program"] == program))
+        self.assertEqual(lag["waymo_ads"]["n"], 1)
 
     def test_counts_row_fields_and_severity_buckets(self):
         reports = [
@@ -99,7 +140,7 @@ class CountTests(unittest.TestCase):
 
     def test_old_nested_counts_shape_is_kept_for_the_site(self):
         reports = [rec("1", "K", "minor"), rec("2", "K", "serious"), rec("3", "J", "none"), rec("4", "S", "fatal", month=None)]
-        counts = agg.build_counts(agg.unique_crashes(agg.current_reports(tables_of(reports))))
+        counts = agg.build_counts(agg.current_reports(tables_of(reports)))
         self.assertEqual(counts["counts"]["waymo_ads"]["2025-01"], {"serious": 1, "none": 1})
         self.assertEqual(counts["counts"]["waymo_ads"]["undated"], {"fatal": 1})
         self.assertEqual(counts["programs"], ["waymo_ads"])
@@ -109,7 +150,7 @@ class CountTests(unittest.TestCase):
         self.assertEqual(total, sum(r["crashes"] for r in counts["rows"]))
 
     def test_only_sgo_severity_never_a_death_count(self):
-        counts = agg.build_counts(agg.unique_crashes(agg.current_reports(tables_of([rec("1", "a", "fatal")]))))
+        counts = agg.build_counts(agg.current_reports(tables_of([rec("1", "a", "fatal")])))
         self.assertNotIn("fatalities", json.dumps(counts))
 
 
@@ -193,10 +234,12 @@ class FixtureBuildTests(unittest.TestCase):
 
     def test_totals_reconcile_with_the_incidents_table(self):
         outputs, _ = agg.build_all(self.tables, fetch_log=support.fetch_log_for(self.raw), run_id="r1", run_at=RUN_AT, today=TODAY)
-        crashes = sum(r["crashes"] for r in outputs["counts.json"]["rows"])
-        self.assertEqual(crashes, len(self.tables["incidents"]))
-        self.assertEqual(crashes, len(outputs["records.json"]["rows"]))
+        unique = outputs["meta.json"]["counts_total"]["unique_incidents"]
+        self.assertEqual(unique, len(self.tables["incidents"]))
+        self.assertEqual(unique, len(outputs["records.json"]["rows"]))
         self.assertEqual(sum(r["reports"] for r in outputs["counts.json"]["rows"]), outputs["meta.json"]["counts_total"]["reports"])
+        self.assertGreaterEqual(sum(r["crashes"] for r in outputs["counts.json"]["rows"]), unique)  # multi-program incidents overlap
+        self.assertEqual(validate.check_outputs(outputs, self.tables), [])
 
     def test_blank_or_whitespace_incident_ids_are_separate_incidents(self):
         raw = support.make_raw_dir(Path(self.tmp.name) / "raw_blank")
@@ -244,10 +287,26 @@ class FixtureBuildTests(unittest.TestCase):
         self.assertEqual(set(meta["nhtsa_last_modified_by_file"]), {s["key"] for s in support.config.SGO_FILES})
         self.assertEqual(meta["rules_version"], golden.RULES_VERSION)
         self.assertEqual(meta["run_at"], RUN_AT)
+        self.assertIs(meta["offline"], False)
         self.assertEqual(meta["placeholders_skipped"], meta["placeholder_rows_skipped"])
         self.assertEqual(meta["total_reports"], meta["counts_total"]["reports"])
         self.assertEqual(meta["total_incidents"], meta["counts_total"]["incidents"])
         self.assertIsInstance(warnings, list)
+
+    def test_offline_flag_and_note_in_meta(self):
+        outputs, _ = agg.build_all(self.tables, fetch_log=support.fetch_log_for(self.raw), run_id="r1", run_at=RUN_AT, today=TODAY, offline=True)
+        meta = outputs["meta.json"]
+        self.assertIs(meta["offline"], True)
+        self.assertIn("not re-verified", meta["offline_note"])
+
+    def test_write_all_sorts_keys_and_refuses_nan(self):
+        out_dir = Path(self.tmp.name) / "sorted"
+        agg.write_all({"a.json": {"b": 1, "a": 2}}, out_dir)
+        self.assertEqual((out_dir / "a.json").read_text(), '{"a":2,"b":1}\n')
+        with self.assertRaises(ValueError):
+            agg.write_all({"bad.json": {"x": float("nan")}}, out_dir)
+        self.assertFalse((out_dir / "bad.json").exists())
+        self.assertEqual([p.name for p in out_dir.iterdir()], ["a.json"])  # no temp file left behind
 
     def test_write_all_is_atomic_and_complete(self):
         outputs, _ = agg.build_all(self.tables, fetch_log=support.fetch_log_for(self.raw), run_id="r1", run_at=RUN_AT, today=TODAY)

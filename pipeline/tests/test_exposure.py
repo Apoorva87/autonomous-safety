@@ -80,6 +80,22 @@ class FlowTests(unittest.TestCase):
         months = sum(out[("waymo_ads", "us", "miles", "2025-%02d" % m)]["value"] for m in range(1, 13))
         self.assertAlmostEqual(months, out[("waymo_ads", "us", "miles", "2025")]["value"])
 
+    def test_interpolation_names_the_gap_and_long_gaps_are_low_confidence(self):
+        short = [cum("2025-01-01", 0), cum("2025-04-01", 900)]
+        out, _ = normalize(short)
+        method = out[("waymo_ads", "us", "miles", "2025-02")]["method"]
+        self.assertIn("gap of 90 days", method)
+        self.assertNotIn("low confidence", method)
+        long_gap = [cum("2023-02-22", 0), cum("2024-12-31", 6780)]
+        gap = (datetime.date(2024, 12, 31) - datetime.date(2023, 2, 22)).days
+        out, _ = normalize(long_gap)
+        row_ = out[("waymo_ads", "us", "miles", "2024-06")]
+        self.assertIn("interpolated across a gap of %d days, low confidence" % gap, row_["method"])
+        self.assertEqual(row_["kind"], "estimate")  # emitted, not dropped, and still an estimate
+        edge = [cum("2025-01-01", 0), cum("2026-06-25", 5400)]  # exactly 540 days
+        out, _ = normalize(edge)
+        self.assertNotIn("low confidence", out[("waymo_ads", "us", "miles", "2025-06")]["method"])
+
     def test_month_between_two_month_end_disclosures_is_derived(self):
         rows = [cum("2025-01-31", 1000, source_id="j"), cum("2025-02-28", 1800, source_id="f"), cum("2025-04-30", 3000, source_id="a")]
         out, _ = normalize(rows)
@@ -136,6 +152,17 @@ class StockTests(unittest.TestCase):
         self.assertIn("mean", year["method"].lower())
         self.assertEqual(out[("waymo_ads", "us", "active_vehicles", "2025-03")]["value"], 100)
         self.assertEqual(out[("waymo_ads", "us", "active_vehicles", "2025-03")]["kind"], "reported")
+
+    def test_mean_of_several_observations_is_derived_a_single_one_keeps_its_kind(self):
+        rows = [
+            row("2025-03-31", "cumulative_to", "subscribers", 100, "reported", source_id="a"),
+            row("2025-09-30", "cumulative_to", "subscribers", 300, "reported", source_id="b"),
+            row("2024-06-30", "cumulative_to", "subscribers", 50, "reported", source_id="c"),
+        ]
+        out, _ = normalize(rows)
+        self.assertEqual(out[("waymo_ads", "us", "subscribers", "2025")]["kind"], "derived")
+        self.assertEqual(out[("waymo_ads", "us", "subscribers", "2024")]["kind"], "reported")
+        self.assertEqual(out[("waymo_ads", "us", "subscribers", "2025-03")]["kind"], "reported")
 
     def test_carry_forward_at_most_twelve_months(self):
         rows = [row("2025-03-31", "cumulative_to", "subscribers", 500, "reported", source_id="a")]

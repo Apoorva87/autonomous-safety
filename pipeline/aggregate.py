@@ -20,11 +20,17 @@ into one crash row:
 A report whose Same Incident ID is blank is its own incident (harmonize gives it
 a "solo:<id>" key), so unrelated blank-ID reports never merge.
 
-Each crash is counted once, in the program, month and file of its representative
-report, so counts.json adds up to the number of incidents and to the number of
-current reports. SGO gives a severity per report, not deaths: "fatal" is a crash
-whose severity is fatal. Total fatalities come only from company_reported and
-investigations rows. Narratives are published only where they are not redacted.
+records.json holds one row per unique incident (the representative report's values).
+counts.json counts per program: `reports` tallies each report under its own program,
+month and file; `crashes` are the unique incident_keys of that program, and an incident
+counts for every program that filed a report in it (a collision between two programs'
+vehicles counts once under each). A program's incident takes the highest severity among
+that program's own reports of it, and sits in the month and file of that report. Per-program
+crash counts therefore overlap for multi-program incidents and must not be summed across
+programs; the grand total of unique incidents is counts_total.unique_incidents in meta.json.
+SGO gives a severity per report, not deaths: "fatal" is a crash whose severity is fatal.
+Total fatalities come only from company_reported and investigations rows. Narratives are
+published only where they are not redacted.
 
 Files (see OUTPUT_FILES): records.json, narratives.json, counts.json, lag.json,
 exposure.json, company_reported.json, sources.json, investigations.json,
@@ -140,42 +146,75 @@ def _has_tag(row, name, basis=None):
     return any(t["t"] == name and (basis is None or t["basis"] == basis) for t in row["tags"])
 
 
-def build_counts(crashes):
+def program_incidents(reports):
+    """[(representative report, member reports)] per (program, incident_key).
+
+    The representative is the program's own report of the incident with the highest
+    severity (ties: lowest report id), so the incident's severity, month and file are
+    always one of that program's reports.
+    """
+    groups = {}
+    for r in reports:
+        groups.setdefault((r["program"], r["incident_key"]), []).append(r)
+    out = []
+    for members in groups.values():
+        rep = min(members, key=lambda r: (-_RANK[r["severity"]], r["report_id"]))
+        out.append((rep, members))
+    out.sort(key=lambda c: (c[0]["program"], c[0]["report_id"]))
+    return out
+
+
+def build_counts(reports):
     """counts.json: flat `rows` (program x month x file) plus the nested severity table the site reads."""
-    dated = [r["month"] for r, _ in crashes if r["month"]]
+    incidents = program_incidents(reports)
+    dated = [rep["month"] for rep, _ in incidents if rep["month"]]
     months = _month_range(min(dated), max(dated)) if dated else []
     nested, flat = {}, {}
-    for rep, n in crashes:
-        sev = rep["severity"]
-        nested.setdefault(rep["program"], {}).setdefault(rep["month"] or "undated", Counter())[sev] += 1
-        key = (rep["program"], rep["month"], rep["kind"])
-        row = flat.setdefault(key, {
-            "program": rep["program"], "company": rep["company"], "month": rep["month"], "file": rep["kind"],
+
+    def slot(r):
+        return flat.setdefault((r["program"], r["month"], r["kind"]), {
+            "program": r["program"], "company": r["company"], "month": r["month"], "file": r["kind"],
             "reports": 0, "crashes": 0, "fatal": 0, "serious_plus": 0, "injury": 0, "vru": 0, "vru_field": 0,
         })
-        row["reports"] += n
+
+    for r in reports:
+        slot(r)["reports"] += 1
+    for rep, members in incidents:
+        sev = rep["severity"]
+        nested.setdefault(rep["program"], {}).setdefault(rep["month"] or "undated", Counter())[sev] += 1
+        row = slot(rep)
         row["crashes"] += 1
         row["fatal"] += sev == "fatal"
         row["serious_plus"] += sev in _SERIOUS_PLUS
         row["injury"] += sev in _INJURY
-        row["vru"] += _has_tag(rep, "vru")
-        row["vru_field"] += _has_tag(rep, "vru", "field")
+        row["vru"] += any(_has_tag(m, "vru") for m in members)
+        row["vru_field"] += any(_has_tag(m, "vru", "field") for m in members)
     rows = sorted(flat.values(), key=lambda r: (r["program"], r["month"] or "", r["file"]))
     return {
-        "unit": "unique crashes (distinct incident_key)",
+        "unit": "unique crashes per program (distinct incident_key within the program)",
         "severities": SEVERITIES,
         "months": months,
         "programs": sorted(nested),
         "counts": {p: {m: dict(c) for m, c in sorted(by_month.items())} for p, by_month in sorted(nested.items())},
         "rows": rows,
+        "unique_incidents": len({r["incident_key"] for r in reports}),
+        "notes": [
+            "Crashes are counted per program. An incident filed by two programs (for example a Waymo and an "
+            "other-AV collision) counts once under each, so per-program crash counts overlap and must not be "
+            "summed across programs. The grand total of unique incidents is unique_incidents here and "
+            "counts_total.unique_incidents in meta.json.",
+            "Reports are counted under each report's own program, month and file, so they do add up across programs.",
+            "A program's incident takes the highest severity among that program's own reports of it, and is "
+            "placed in the month and file of that report.",
+        ],
         "row_notes": {
-            "reports": "current reports of the crashes counted in the row",
-            "crashes": "unique incident_key, counted once in the program/month/file of its representative report",
+            "reports": "current reports filed under this program, month and file",
+            "crashes": "unique incident_key within the program (see notes: not additive across programs)",
             "fatal": "crashes whose highest severity is fatal (SGO gives severity, not a death count)",
             "serious_plus": "crashes with serious or fatal severity",
             "injury": "crashes with any injury severity: minor, moderate, serious or fatal",
-            "vru": "crashes tagged vru (structured field or narrative keyword)",
-            "vru_field": "crashes tagged vru by a structured field only (comparable across redaction levels)",
+            "vru": "crashes where a report of the program carries the vru tag (structured field or narrative keyword)",
+            "vru_field": "as vru, structured field only (comparable across redaction levels)",
         },
     }
 
@@ -184,13 +223,14 @@ def build_counts(crashes):
 def build_lag(reports):
     """Empirical CDF of the reporting lag per program, on LAG_DAYS (months resolution)."""
     lags = defaultdict(list)
+    totals = Counter(r["program"] for r in reports)
     for r in reports:
         if r["lag_days"] is not None:
             lags[r["program"]].append(r["lag_days"])
     programs = {}
     for program, values in sorted(lags.items()):
         n = len(values)
-        programs[program] = {"n": n, "cdf": [round(sum(1 for v in values if v <= d) / n, 4) for d in LAG_DAYS]}
+        programs[program] = {"n": n, "n_reports": totals[program], "cdf": [round(sum(1 for v in values if v <= d) / n, 4) for d in LAG_DAYS]}
     return {
         "days": LAG_DAYS,
         "resolution": "month",
@@ -268,7 +308,7 @@ def _stamp(http_date):
         return None
 
 
-def build_meta(tables, reports, crashes, fetch_log, run_id, run_at, today, warnings):
+def build_meta(tables, reports, crashes, fetch_log, run_id, run_at, today, warnings, offline=False):
     stamps = {e["key"]: _stamp(e.get("last_modified")) for e in fetch_log}
     known = [s for s in stamps.values() if s is not None]
     months = sorted(r["month"] for r in reports if r["month"])
@@ -287,7 +327,12 @@ def build_meta(tables, reports, crashes, fetch_log, run_id, run_at, today, warni
         "structural_break": STRUCTURAL_BREAK,
         "total_reports": len(reports),
         "total_incidents": len(crashes),
-        "counts_total": {"reports": len(reports), "incidents": len(crashes)},
+        "counts_total": {"reports": len(reports), "incidents": len(crashes), "unique_incidents": len(crashes)},
+        "offline": bool(offline),
+        "offline_note": (
+            "Raw files were not downloaded in this run: the sha256 values in fetch_log come from the previous "
+            "fetch log and were not re-verified, and row-drop checks compare against the previous fetch log only."
+            if offline else None),
         "placeholder_rows_skipped": placeholders,
         "placeholders_skipped": placeholders,
         "first_month": months[0] if months else None,
@@ -344,7 +389,8 @@ def merge_changelog(previous, entry):
 
 
 # ---------------------------------------------------------------------- main
-def build_all(tables, fetch_log, run_id, run_at, today, previous_tables=None, previous_changelog=None, warnings=()):
+def build_all(tables, fetch_log, run_id, run_at, today, previous_tables=None, previous_changelog=None, warnings=(),
+              offline=False):
     """({file name: JSON-able object}, warnings) for every site file."""
     reports = current_reports(tables)
     crashes = unique_crashes(reports)
@@ -354,7 +400,7 @@ def build_all(tables, fetch_log, run_id, run_at, today, previous_tables=None, pr
     outputs = {
         "records.json": build_records(crashes),
         "narratives.json": build_narratives(reports),
-        "counts.json": build_counts(crashes),
+        "counts.json": build_counts(reports),
         "lag.json": build_lag(reports),
         "exposure.json": exposure_json,
         "company_reported.json": {"rows": tables.get("company_reported", [])},
@@ -363,7 +409,7 @@ def build_all(tables, fetch_log, run_id, run_at, today, previous_tables=None, pr
         "events.json": {"rows": tables.get("events", [])},
         "rules.json": {"rules_version": golden.RULES_VERSION, "rules": classify.RULES},
         "transparency.json": build_transparency(reports),
-        "meta.json": build_meta(tables, reports, crashes, fetch_log, run_id, run_at, today, all_warnings),
+        "meta.json": build_meta(tables, reports, crashes, fetch_log, run_id, run_at, today, all_warnings, offline),
         "changelog.json": merge_changelog(previous_changelog, entry),
     }
     assert set(outputs) == set(OUTPUT_FILES)
@@ -378,7 +424,7 @@ def write_all(outputs, out_dir):
     try:
         for name, obj in outputs.items():
             temp = out_dir / ("." + name + ".tmp")
-            temp.write_text(json.dumps(obj, separators=(",", ":"), ensure_ascii=False) + "\n", encoding="utf-8")
+            temp.write_text(json.dumps(obj, separators=(",", ":"), ensure_ascii=False, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
             temps.append((temp, out_dir / name))
         for temp, path in temps:
             os.replace(temp, path)

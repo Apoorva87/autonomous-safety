@@ -68,11 +68,11 @@ def _summary(outputs):
         slot = totals.setdefault(row["program"], [0, 0])
         slot[0] += row["crashes"]
         slot[1] += row["reports"]
-    print("unique crashes by program (reports in brackets):")
+    print("crashes by program (unique incidents within each program, overlapping across programs; reports in brackets):")
     for program, (crashes, reports) in sorted(totals.items()):
         print("  %-16s %6d  (%d)" % (program, crashes, reports))
     meta = outputs["meta.json"]
-    print("total: %d unique crashes, %d reports" % (meta["total_incidents"], meta["total_reports"]))
+    print("total: %d unique incidents (not the sum of the rows above), %d reports" % (meta["total_incidents"], meta["total_reports"]))
 
 
 def run(offline=False, run_id=None, raw_dir=None, manual_dir=None, golden_dir=None, out_dir=None, fetch_log_path=None,
@@ -113,13 +113,17 @@ def run(offline=False, run_id=None, raw_dir=None, manual_dir=None, golden_dir=No
         )
         if errors:
             return _fail(errors, warnings)
+        if offline:
+            note = "offline: row-drop checks compare against the previous fetch log only"
+            print(note)
+            warnings = [note] + list(warnings)
 
         manual_tables = manual.load(manual_dir, today=today)
         previous = build_db.read_previous(golden_dir)
         tables = golden.build(source_dir, manual_tables, run_id, previous=previous, fetch_log=fetch_log)
         outputs, warnings = aggregate.build_all(
             tables, fetch_log, run_id, run_at, today, previous_tables=previous,
-            previous_changelog=_read_json(out_dir / "changelog.json"), warnings=warnings,
+            previous_changelog=_read_json(out_dir / "changelog.json"), warnings=warnings, offline=offline,
         )
         errors = validate.check_outputs(outputs, tables)
         if errors:

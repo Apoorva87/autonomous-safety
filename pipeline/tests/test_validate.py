@@ -223,13 +223,33 @@ class SwingTests(unittest.TestCase):
 
 
 class OutputCheckTests(unittest.TestCase):
-    def test_counts_total_must_equal_unique_incidents_and_reports(self):
-        rows = [{"crashes": 2, "reports": 3}, {"crashes": 1, "reports": 1}]
-        self.assertEqual(validate.check_counts(rows, incidents=3, reports=4), [])
-        errors = validate.check_counts(rows, incidents=4, reports=4)
+    REPORTS = [
+        {"program": "waymo_ads", "incident_key": "K"}, {"program": "waymo_ads", "incident_key": "J"},
+        {"program": "other_ads", "incident_key": "K"},
+    ]
+
+    def good_rows(self):
+        return [{"program": "waymo_ads", "crashes": 2, "reports": 2}, {"program": "other_ads", "crashes": 1, "reports": 1}]
+
+    def test_counts_reconcile_per_program_and_globally(self):
+        # K is one incident under two programs: 3 program crashes, 2 unique incidents
+        self.assertEqual(validate.check_counts(self.good_rows(), self.REPORTS, unique_incidents=2), [])
+
+    def test_planted_mismatches_are_caught(self):
+        rows = self.good_rows()
+        rows[0]["crashes"] = 3
+        errors = validate.check_counts(rows, self.REPORTS, 2)
         self.assertEqual(len(errors), 1)
-        self.assertIn("4", errors[0])
-        self.assertEqual(len(validate.check_counts(rows, incidents=3, reports=5)), 1)
+        self.assertIn("waymo_ads", errors[0])
+        rows = self.good_rows()
+        rows[1]["reports"] = 2
+        errors = validate.check_counts(rows, self.REPORTS, 2)
+        self.assertTrue(len(errors) == 1 and "other_ads" in errors[0] and "reports" in errors[0], errors)
+        errors = validate.check_counts(self.good_rows(), self.REPORTS, unique_incidents=3)  # summing across programs
+        self.assertEqual(len(errors), 1)
+        self.assertIn("unique incidents", errors[0])
+        rows = self.good_rows() + [{"program": "ghost", "crashes": 1, "reports": 1}]
+        self.assertEqual(len(validate.check_counts(rows, self.REPORTS, 2)), 2)
 
     def test_exposure_rows_must_cite_known_sources(self):
         outputs = {"exposure.json": {"rows": [{"source_ids": ["a", "zzz"]}, {"source_ids": []}]}, "sources.json": {"rows": [{"source_id": "a"}]}}

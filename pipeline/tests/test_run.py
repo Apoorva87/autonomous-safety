@@ -69,13 +69,17 @@ class OfflineRunTests(RunBase):
         self.assertTrue(meta["warnings"])
         for warning in meta["warnings"]:
             self.assertIn(warning, out)  # the run output carries meta.json's warnings
-        self.assertIn("unique crashes by program", out)
+        self.assertIn("crashes by program", out)
+        self.assertIs(meta["offline"], True)
+        self.assertIn("offline: row-drop checks compare against the previous fetch log only", meta["warnings"])
+        self.assertIn("offline: row-drop checks compare against the previous fetch log only", out)
 
     def test_fixture_run_totals(self):
         self.run_pipeline()
         meta = json.loads((self.out / "meta.json").read_text(encoding="utf-8"))
         counts = json.loads((self.out / "counts.json").read_text(encoding="utf-8"))
-        self.assertEqual(sum(r["crashes"] for r in counts["rows"]), meta["counts_total"]["incidents"])
+        self.assertGreaterEqual(sum(r["crashes"] for r in counts["rows"]), meta["counts_total"]["unique_incidents"])
+        self.assertEqual(meta["counts_total"]["unique_incidents"], meta["counts_total"]["incidents"])
         self.assertEqual(sum(r["reports"] for r in counts["rows"]), meta["counts_total"]["reports"])
 
     def test_second_run_prepends_a_changelog_entry(self):

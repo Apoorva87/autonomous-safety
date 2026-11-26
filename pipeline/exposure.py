@@ -23,9 +23,12 @@ Rules (ruling R2):
                          (linear interpolation of the cumulative curve). A month
                          is `derived` only when both of its boundary dates are
                          disclosure dates, otherwise `estimate`; a year likewise.
+                         Interpolated rows name the gap between the bracketing disclosures; a gap
+                         over LOW_CONFIDENCE_GAP_DAYS is labelled "low confidence" (kind stays estimate).
                          A period that starts before the first disclosure or ends
                          after the last one gets no row: nothing is extrapolated.
-  active_vehicles,       the mean of the observations dated inside the period.
+  active_vehicles,       the mean of the observations dated inside the period (kind derived
+                         when it averages several observations; a single one keeps its kind).
   subscribers            With none, the latest earlier observation is carried
                          forward (kind estimate, "carried forward from <date>")
                          for at most CARRY_MONTHS months: the whole period must
@@ -44,6 +47,7 @@ from collections import defaultdict
 
 KIND_RANK = {"reported": 0, "derived": 1, "estimate": 2}
 CARRY_MONTHS = 12
+LOW_CONFIDENCE_GAP_DAYS = 540
 FIRST_YEAR = 2019
 STOCK_METRICS = ("active_vehicles", "subscribers")
 
@@ -218,12 +222,20 @@ def _cum_miles(program, region, rows, today, warnings):
         exact = b0 in dates and b1 in dates
         kind = weakest([("derived" if exact else "estimate")] + [o["kind"] for o in ends])
         span = "%s to %s" % (touched[0]["start"], touched[-1]["end"])
+        gaps = [(seg["end"] - seg["start"]).days for seg in touched
+                if max(b0, seg["start"]) > seg["start"] or min(b1, seg["end"]) < seg["end"]]
+        gap = max(gaps) if gaps else 0
         if exact:
             method = ("Derived: cumulative miles at %s minus cumulative miles at %s (difference of disclosures)."
                       % (b1, b0))
         else:
-            method = ("Estimate: share of the cumulative-mile growth disclosed between %s, spread evenly over "
-                      "its days (linear interpolation of the cumulative curve)." % span)
+            if gap > LOW_CONFIDENCE_GAP_DAYS:
+                method = ("Estimate: interpolated across a gap of %d days, low confidence. Share of the "
+                          "cumulative-mile growth disclosed between %s, spread evenly over its days." % (gap, span))
+            else:
+                method = ("Estimate: share of the cumulative-mile growth disclosed between %s (gap of %d days "
+                          "between disclosures), spread evenly over its days (linear interpolation of the "
+                          "cumulative curve)." % (span, gap))
         if kind == "estimate" and exact:
             method += " An input disclosure is itself an estimate."
         return total, kind, _union(o["source_ids"] for o in ends), method
@@ -264,7 +276,10 @@ def _stock(program, region, metric, rows, today):
     def period_row(label, start, end):
         inside = [o for o in obs if start <= o["date"] <= end]
         if inside:
-            kind = weakest([o["kind"] for o in inside])
+            kinds = [o["kind"] for o in inside]
+            if len(inside) > 1:
+                kinds.append("derived")  # an average is computed, not reported
+            kind = weakest(kinds)
             ids = _union(o["source_ids"] for o in inside)
             value = sum(o["value"] for o in inside) / len(inside)
             if len(inside) == 1:

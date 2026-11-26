@@ -291,15 +291,32 @@ def check(raw_dir, today=None, manual_dir=None, expected_entities=None, previous
 
 
 # ------------------------------------------------------- checks after aggregate
-def check_counts(rows, incidents, reports):
-    """counts.json rows must add up to the unique incidents and to the current reports."""
+def check_counts(rows, reports, unique_incidents):
+    """counts.json must reconcile with the current golden reports, program by program.
+
+    reports  the current golden reports rows. Per program: the `reports` column adds up to that
+    program's reports and `crashes` to its unique incident_keys. Globally, the unique
+    incident_keys equal `unique_incidents` (crashes are not additive across programs).
+    """
     errors = []
-    crashes = sum(r["crashes"] for r in rows)
-    if crashes != incidents:
-        errors.append("counts.json adds up to %d crashes but there are %d unique incidents" % (crashes, incidents))
-    total = sum(r["reports"] for r in rows)
-    if total != reports:
-        errors.append("counts.json adds up to %d reports but there are %d current reports" % (total, reports))
+    want_reports = Counter(r["program"] for r in reports)
+    want_crashes = defaultdict(set)
+    for r in reports:
+        want_crashes[r["program"]].add(r["incident_key"])
+    got_reports, got_crashes = Counter(), Counter()
+    for row in rows:
+        got_reports[row["program"]] += row["reports"]
+        got_crashes[row["program"]] += row["crashes"]
+    for program in sorted(set(want_reports) | set(got_reports)):
+        if got_reports[program] != want_reports[program]:
+            errors.append("counts.json %s: rows add up to %d reports but the program has %d current reports"
+                          % (program, got_reports[program], want_reports[program]))
+        if got_crashes[program] != len(want_crashes[program]):
+            errors.append("counts.json %s: rows add up to %d crashes but the program has %d unique incidents"
+                          % (program, got_crashes[program], len(want_crashes[program])))
+    total = len({r["incident_key"] for r in reports})
+    if total != unique_incidents:
+        errors.append("unique incidents total is %d but the current reports hold %d" % (unique_incidents, total))
     return errors
 
 
@@ -321,10 +338,14 @@ def check_outputs(outputs, tables):
 
     reports = aggregate.current_reports(tables)
     incidents = len({r["incident_key"] for r in reports})
-    errors = check_counts(outputs["counts.json"]["rows"], incidents, len(reports))
+    errors = check_counts(outputs["counts.json"]["rows"], reports, outputs["meta.json"]["counts_total"]["unique_incidents"])
     if incidents != len(tables["incidents"]):
         errors.append("golden incidents table has %d rows but the reports hold %d unique incidents" % (len(tables["incidents"]), incidents))
     if len(outputs["records.json"]["rows"]) != incidents:
         errors.append("records.json has %d rows but there are %d unique incidents" % (len(outputs["records.json"]["rows"]), incidents))
+    reports_by_program = Counter(r["program"] for r in reports)
+    for program, entry in outputs["lag.json"]["programs"].items():
+        if entry["n_reports"] != reports_by_program[program]:
+            errors.append("lag.json %s: %d reports but counts has %d" % (program, entry["n_reports"], reports_by_program[program]))
     errors.extend(check_exposure_sources(outputs))
     return errors
