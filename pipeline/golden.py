@@ -13,14 +13,19 @@ Tables
                    each report
   sources, exposure, company_reported, investigations, events, cadence
                    the manual tables, copied unchanged from manual.load()
-  runs             one row per build: file hashes and last-modified stamps,
-                   counts, placeholder rows, unmapped labels
-  labels           reserved for future AI analysis; created empty and never
-                   written or deleted by the builder
+  runs             one row per build: rules_version, file hashes and last-modified
+                   stamps, counts, placeholder rows, unmapped labels
+  labels           reserved for future AI analysis, keyed by report_key (one
+                   label per report version); created empty and never written
+                   or deleted by the builder
+
+is_latest: exactly one row per Report ID among the non-removed rows (none when
+every version of an ID vanished). Placeholder filings carry is_latest too, so
+consumers filter is_placeholder = false (the sqlite view latest_reports does).
 
 A reports row has four kinds of keys:
   meta        report_key, is_latest, source_file, row_hash, first_seen_run,
-              last_seen_run, removed_in_run, previous_row_hash
+              removed_in_run, previous_row_hash
   normalized  the harmonized fields (IDENTITY_FIELDS + STATUS_FIELDS + DERIVED_FIELDS)
   status      {field: one of STATUSES} for every field in STATUS_FIELDS
   raw         {source column: original string, whitespace-trimmed}; only the
@@ -50,6 +55,11 @@ NOT_COLLECTED = "not_collected_in_era"
 NOT_APPLICABLE = "not_applicable"
 STATUSES = (PROVIDED, REPORTED_UNKNOWN, REDACTED_CBI, NOT_COLLECTED, NOT_APPLICABLE)
 UNAVAILABLE_REASONS = STATUSES[1:]
+
+# Bump by hand whenever a schema map, a STATUS_RULES entry or the classify rules change,
+# so the runs table says which rules produced the normalized fields (row_hash covers
+# only the raw row).
+RULES_VERSION = "1"
 
 SEVERITY_RANK = {"unknown": 0, "none": 1, "minor": 2, "moderate": 3, "serious": 4, "fatal": 5}
 
@@ -187,7 +197,7 @@ DERIVED_FIELDS = (
     "version_redacted",
 )
 META_FIELDS = (
-    "report_key", "is_latest", "source_file", "row_hash", "first_seen_run", "last_seen_run", "removed_in_run",
+    "report_key", "is_latest", "source_file", "row_hash", "first_seen_run", "removed_in_run",
     "previous_row_hash",
 )
 # Flat columns of a reports row in canonical order. "narrative" has a status but no
@@ -522,8 +532,11 @@ def build(raw_dir, manual_tables, run_id, previous=None, fetch_log=None, allow_m
     raw_dir          directory with the six SGO CSVs
     manual_tables    manual.load() output
     run_id           names this build (a UTC timestamp in production). Rows seen
-                     before keep first_seen_run; rows present now get
-                     last_seen_run = run_id; rows that vanished get removed_in_run
+                     before keep first_seen_run, a changed row gets
+                     first_seen_run = run_id, and rows that vanished get
+                     removed_in_run. Unchanged rows are left untouched, so an
+                     unchanged refresh rewrites no report rows; last_seen_run is
+                     derived from runs by build_db.write_sqlite
     previous         the tables of the last build (build_db.read_previous), for
                      first_seen_run carry-over, the runs history and labels
     fetch_log        the parsed data/registry/fetch_log.json, for the runs table
@@ -572,7 +585,6 @@ def build(raw_dir, manual_tables, run_id, previous=None, fetch_log=None, allow_m
             "source_file": item["spec"]["key"],
             "row_hash": digest,
             "first_seen_run": first,
-            "last_seen_run": run_id,
             "removed_in_run": None,
             "previous_row_hash": replaced,
             **item["fields"],
@@ -584,6 +596,7 @@ def build(raw_dir, manual_tables, run_id, previous=None, fetch_log=None, allow_m
     for key, before in old.items():
         if key not in present:  # withdrawn from the source: kept, marked, never deleted
             gone = copy.deepcopy(before)
+            gone.pop("last_seen_run", None)  # stored by builds before the churn fix
             gone["is_latest"] = False
             gone["removed_in_run"] = before.get("removed_in_run") or run_id
             reports.append(gone)
@@ -608,6 +621,7 @@ def _run_row(run_id, reports, incidents, entries, file_rows, fetch_log):
     placeholders = sum(1 for _, row in entries if harmonize.is_placeholder(row))
     return {
         "run_id": run_id,
+        "rules_version": RULES_VERSION,
         "nhtsa_last_modified": {k: _stamp(e.get("last_modified")) for k, e in sorted(log.items())},
         "file_sha256": {k: e.get("sha256") for k, e in sorted(log.items())},
         "file_rows": dict(sorted(file_rows.items())),

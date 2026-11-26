@@ -68,7 +68,10 @@ Implementation plan: [`docs/superpowers/plans/2026-11-26-av-safety-dashboard.md`
 
 The durable asset. Every column of every SGO report version is kept, merged into one format, and
 nothing is silently blank. Built by `python3 -m pipeline.build_db [--run-id ID]` into `data/golden/`
-(about 6 s). Run it once per refresh: each run stamps `last_seen_run` on every row it sees.
+(about 6 s). Run it once per refresh, and **only after the validation gate (Task 5) has passed**: a
+build records a run and commits to whatever the raw files contain. Unchanged reports are not
+rewritten, so a refresh only diffs rows that are new, changed or removed, plus one new line in
+`runs.jsonl`. The JSONL files are written atomically (temp files, then rename).
 
 **Storage.** One JSONL file per table (sorted by key, keys sorted, UTF-8, `\n` line endings, so an
 unchanged rebuild is byte-identical) is the canonical, committed store. `reports` is about 106 MB,
@@ -78,11 +81,11 @@ is **not committed** (git-ignored; rebuild it with the command above).
 
 | Table | One row per | Notes |
 |---|---|---|
-| `reports` | (Report ID, Report Version) in any SGO file | Every version kept. `is_latest` marks one per Report ID; `raw` holds every source column verbatim (trimmed; columns the era lacks are absent); the normalized fields sit beside it, with a `status` per field. `row_hash`, `first_seen_run`, `last_seen_run`, `removed_in_run`, `previous_row_hash` trace corrections and withdrawals. "No New or Updated Incident Reports" filings are kept with `is_placeholder = true`. |
+| `reports` | (Report ID, Report Version) in any SGO file | Every version kept. `raw` holds every source column (see notes below; columns the era lacks are absent); the normalized fields sit beside it, with a `status` per field. `row_hash`, `first_seen_run`, `removed_in_run`, `previous_row_hash` trace corrections and withdrawals (`last_seen_run` is derived, in sqlite only). |
 | `incidents` | `incident_key` (Same Incident ID, else `solo:<id>`) | Member `report_ids`, all `report_keys`, `latest_report_keys`, companies, programs, month, max severity. |
 | `sources`, `exposure`, `company_reported`, `investigations`, `events`, `cadence` | the hand-curated rows of `data/manual/` | Copied unchanged (including `region`, `recall_units`, `date_precision`). |
-| `runs` | build | Run id, NHTSA `Last-Modified` and SHA-256 per file, row counts, placeholder rows, unmapped labels. |
-| `labels` | (report, label set) | Reserved for the future AI avoidability analysis. Created empty, and the builder never writes or deletes label rows once present. Columns: `report_key, label_set, label, rationale, evidence_fields, model, prompt_version, run_at`. |
+| `runs` | build | Run id, `rules_version`, NHTSA `Last-Modified` and SHA-256 per file, row counts, placeholder rows, unmapped labels. |
+| `labels` | (report version, label set) | Reserved for the future AI avoidability analysis. **Keyed by `report_key`, i.e. per report version**, a deliberate deviation from the spec sketch (which said `report_id`), so a label always points at the exact text it judged. Created empty, and the builder never writes or deletes label rows once present. Columns: `report_key, label_set, label, rationale, evidence_fields, model, prompt_version, run_at`. |
 
 **Field status.** Each normalized field has one of five statuses in `reports.status`. The UI shows
 the last four as "unavailable" and the status as the reason.
@@ -95,7 +98,31 @@ the last four as "unavailable" and the status as the reason.
 | `not_collected_in_era` | The column does not exist in this report's era (for example `lighting` after 2025-06-16). |
 | `not_applicable` | The field does not apply (placeholder filing, no crash partner, consumer-owned vehicle, "N/A" agency). |
 
-The rules live in one table, `golden.STATUS_RULES`.
+The rules live in one table, `golden.STATUS_RULES`. `golden.RULES_VERSION` is a short string that
+is bumped by hand whenever a schema map, a status rule or the classify rules change, and is
+stored in every `runs` row; `row_hash` covers only the raw row, so this is how you tell which
+rules produced the normalized fields.
+
+**Things to know when reading `reports`.**
+
+- **`raw` is trimmed, and not byte-lossless.** Values are whitespace-trimmed only, and undecodable
+  bytes in the source CSV are replaced with U+FFFD (one such row today, in `archive_ADAS`). The
+  lossless pointer is the source file's SHA-256 recorded per run in `runs.file_sha256`
+  (and `data/registry/fetch_log.json`).
+- **`is_latest`:** exactly one row per Report ID is `is_latest` among the non-removed rows
+  (`removed_in_run IS NULL`). If the newest version vanishes from the source, the next one down
+  takes over; if every version vanishes, the ID has none. Removed rows keep their data and
+  have `is_latest = 0`.
+- **Placeholder filings carry `is_latest = 1` too.** "No New or Updated Incident Reports" rows are
+  kept (`is_placeholder = true`, every status `not_applicable`) but are not crashes. Consumers must
+  filter `is_placeholder = false`; the sqlite view `latest_reports` already does (and drops
+  removed rows). Incidents are built without placeholders.
+- **`last_seen_run`** exists only in sqlite: the latest run in `runs` for rows still in the source,
+  or the run before `removed_in_run` for removed rows.
+- **PII-withheld cells** (`[MAY CONTAIN PERSONALLY IDENTIFIABLE INFORMATION]` in VIN, serial number,
+  latitude/longitude, address, ZIP, officer details) stay in `raw` only and have no normalized field,
+  because the five statuses have no PII reason. If needed later, a derived `pii_withheld` flag per
+  report is the option, rather than overloading `redacted_cbi`.
 
 **Query it.**
 
@@ -114,8 +141,8 @@ WHERE sv_movement = 'stopped' AND sv_contact_areas = '["rear"]';
 SELECT raw FROM reports WHERE report_key = '<Report ID>|v1';
 ```
 
-**Built vs planned.** Built: the tables above, the JSONL store, sqlite compile, field statuses,
-version and withdrawal tracking. Planned: filling `labels` (AI avoidability analysis), validation
+**Built vs planned.** Built: the tables above, the JSONL store (atomic writes), sqlite compile, field statuses,
+version and withdrawal tracking, `rules_version`. Planned: filling `labels` (AI avoidability analysis), validation
 gates that run before a build is committed, and the site reading its exports from the golden store.
 
 ## Planned work (not yet implemented)

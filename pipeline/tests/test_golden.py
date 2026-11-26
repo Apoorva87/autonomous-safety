@@ -71,6 +71,18 @@ def drop_rows(rows, keep):
     rows[:] = [r for r in rows if keep(r)]
 
 
+def golden_last_seen(tables):
+    """Independent restatement of the last_seen_run rule for sqlite."""
+    runs = sorted(r["run_id"] for r in tables["runs"])
+    out = {}
+    for row in tables["reports"]:
+        if row["removed_in_run"] is None:
+            out[row["report_key"]] = runs[-1]
+        else:
+            out[row["report_key"]] = max(r for r in runs if r < row["removed_in_run"])
+    return out
+
+
 def by_key(rows, key="report_key"):
     return {r[key]: r for r in rows}
 
@@ -657,20 +669,36 @@ class CarryOverTests(FixtureCase):
         self.assertEqual(keys, sorted(keys))
         self.assertEqual(len(keys), 14)
 
-    def test_new_run_id_bumps_only_last_seen(self):
+    def test_new_run_id_with_unchanged_inputs_leaves_reports_untouched(self):
         first = self.build("R1")
         second = self.build("R2", previous=first)
-        a, b = by_key(first["reports"]), by_key(second["reports"])
-        self.assertEqual(set(a), set(b))
-        for key in a:
-            x, y = dict(a[key]), dict(b[key])
-            self.assertEqual((x["first_seen_run"], x["last_seen_run"]), ("R1", "R1"))
-            self.assertEqual((y["first_seen_run"], y["last_seen_run"]), ("R1", "R2"))
-            x.pop("last_seen_run")
-            y.pop("last_seen_run")
-            self.assertEqual(x, y, key)
+        self.assertEqual(second["reports"], first["reports"])
         self.assertEqual(second["incidents"], first["incidents"])
+        for row in second["reports"]:
+            self.assertEqual(row["first_seen_run"], "R1")
+            self.assertNotIn("last_seen_run", row)
+        self.assertEqual([r["run_id"] for r in second["runs"]], ["R1", "R2"])
         self.assertEqual(second["runs"][1]["counts"]["new_rows"], 0)
+
+    def test_new_run_id_changes_only_runs_jsonl_on_disk(self):
+        d1 = Path(self.tmp.name) / "g1"
+        build_db.write_jsonl(self.build("R1"), d1)
+        before = self.snapshot(d1)
+        build_db.write_jsonl(self.build("R2", previous=build_db.read_previous(d1)), d1)
+        after = self.snapshot(d1)
+        self.assertEqual({n for n in before if before[n] != after[n]}, {"runs.jsonl"})
+        self.assertEqual(len(after["runs.jsonl"].splitlines()), 2)
+
+    def test_old_jsonl_with_last_seen_run_is_upgraded(self):
+        first = self.build("R1")
+        legacy = copy.deepcopy(first)
+        for row in legacy["reports"]:
+            row["last_seen_run"] = "R1"
+        edit_csv(self.raw / "archive_ADAS.csv", lambda rows: drop_rows(rows, lambda r: r["Report ID"] != "G-300"))
+        second = self.build("R2", previous=legacy)
+        for row in second["reports"]:
+            self.assertNotIn("last_seen_run", row)
+        self.assertEqual(by_key(second["reports"])["G-300|v1"]["removed_in_run"], "R2")
 
     def test_modified_row_gets_new_hash_and_first_seen(self):
         first = self.build("R1")
@@ -680,11 +708,11 @@ class CarryOverTests(FixtureCase):
         a, b = by_key(first["reports"]), by_key(second["reports"])
         old, new = a["T-200|v1"], b["T-200|v1"]
         self.assertNotEqual(old["row_hash"], new["row_hash"])
-        self.assertEqual((new["first_seen_run"], new["last_seen_run"]), ("R2", "R2"))
+        self.assertEqual(new["first_seen_run"], "R2")
         self.assertEqual(new["previous_row_hash"], old["row_hash"])
         self.assertEqual(new["raw"]["Narrative"], "Edited narrative.")
         # a row that did not change keeps its history
-        self.assertEqual((b["T-100|v1"]["first_seen_run"], b["T-100|v1"]["last_seen_run"]), ("R1", "R2"))
+        self.assertEqual(b["T-100|v1"], a["T-100|v1"])
         self.assertIsNone(b["T-100|v1"]["previous_row_hash"])
         self.assertEqual(second["runs"][1]["counts"]["changed_rows"], 1)
 
@@ -695,7 +723,7 @@ class CarryOverTests(FixtureCase):
         second = self.build("R2", previous=first)
         third = self.build("R3", previous=second)
         row = by_key(third["reports"])["T-200|v1"]
-        self.assertEqual((row["first_seen_run"], row["last_seen_run"]), ("R2", "R3"))
+        self.assertEqual(row["first_seen_run"], "R2")
         self.assertEqual(row["previous_row_hash"], by_key(first["reports"])["T-200|v1"]["row_hash"])
 
     def test_new_version_is_a_new_report_key(self):
@@ -709,11 +737,10 @@ class CarryOverTests(FixtureCase):
         edit_csv(self.raw / "archive_ADAS.csv", add_version)
         second = self.build("R2", previous=first)
         b = by_key(second["reports"])
-        self.assertEqual((b["T-200|v2"]["first_seen_run"], b["T-200|v2"]["last_seen_run"]), ("R2", "R2"))
+        self.assertEqual(b["T-200|v2"]["first_seen_run"], "R2")
         self.assertTrue(b["T-200|v2"]["is_latest"])
         self.assertFalse(b["T-200|v1"]["is_latest"])
         self.assertEqual(b["T-200|v1"]["first_seen_run"], "R1")
-        self.assertEqual(b["T-200|v1"]["last_seen_run"], "R2")
 
     def test_vanished_row_is_marked_removed_not_deleted(self):
         first = self.build("R1")
@@ -722,7 +749,6 @@ class CarryOverTests(FixtureCase):
         b = by_key(second["reports"])
         gone = b["G-300|v1"]
         self.assertEqual(gone["removed_in_run"], "R2")
-        self.assertEqual(gone["last_seen_run"], "R1")
         self.assertEqual(gone["first_seen_run"], "R1")
         self.assertFalse(gone["is_latest"])
         self.assertEqual(gone["raw"], by_key(first["reports"])["G-300|v1"]["raw"])
@@ -742,7 +768,7 @@ class CarryOverTests(FixtureCase):
         third = self.build("R3", previous=second)
         row = by_key(third["reports"])["G-300|v1"]
         self.assertIsNone(row["removed_in_run"])
-        self.assertEqual((row["first_seen_run"], row["last_seen_run"]), ("R1", "R3"))
+        self.assertEqual(row["first_seen_run"], "R1")
         self.assertTrue(row["is_latest"])
 
     def test_exactly_one_latest_per_id_among_active_rows(self):
@@ -754,6 +780,65 @@ class CarryOverTests(FixtureCase):
         self.assertEqual(len(ids), len(set(ids)))
         self.assertEqual(by_key(second["reports"])["T-100|v1"]["is_latest"], True)
         self.assertEqual(by_key(second["reports"])["T-100|v2"]["removed_in_run"], "R2")
+
+    def test_newest_version_vanished_older_one_becomes_latest(self):
+        first = self.build("R1")
+        edit_csv(self.raw / "archive_ADAS.csv",
+                 lambda rows: drop_rows(rows, lambda r: not (r["Report ID"] == "T-100" and r["Report Version"] == "2")))
+        second = self.build("R2", previous=first)
+        rows = by_key(second["reports"])
+        self.assertTrue(rows["T-100|v1"]["is_latest"])
+        self.assertIsNone(rows["T-100|v1"]["removed_in_run"])
+        self.assertFalse(rows["T-100|v2"]["is_latest"])
+        self.assertEqual(rows["T-100|v2"]["removed_in_run"], "R2")
+        latest = [r["report_key"] for r in second["reports"] if r["report_id"] == "T-100" and r["is_latest"] and r["removed_in_run"] is None]
+        self.assertEqual(latest, ["T-100|v1"])
+        incident = by_key(second["incidents"], "incident_key")["solo:T-100"]
+        self.assertEqual(incident["latest_report_keys"], ["T-100|v1"])
+        self.assertEqual(incident["report_keys"], ["T-100|v1"])
+
+    def test_all_versions_vanished_leaves_no_latest_and_no_incident(self):
+        first = self.build("R1")
+        edit_csv(self.raw / "archive_ADAS.csv", lambda rows: drop_rows(rows, lambda r: r["Report ID"] != "T-100"))
+        second = self.build("R2", previous=first)
+        rows = [r for r in second["reports"] if r["report_id"] == "T-100"]
+        self.assertEqual(len(rows), 2)
+        for r in rows:
+            self.assertEqual(r["removed_in_run"], "R2")
+            self.assertFalse(r["is_latest"])
+        self.assertNotIn("solo:T-100", by_key(second["incidents"], "incident_key"))
+        # every other ID still has exactly one latest among its non-removed rows
+        latest = [r["report_id"] for r in second["reports"] if r["removed_in_run"] is None and r["is_latest"]]
+        active_ids = {r["report_id"] for r in second["reports"] if r["removed_in_run"] is None}
+        self.assertEqual(sorted(latest), sorted(active_ids))
+
+    def test_jsonl_write_is_atomic(self):
+        directory = Path(self.tmp.name) / "atomic"
+        tables = self.build("R1")
+        build_db.write_jsonl(tables, directory)
+        before = self.snapshot(directory)
+        broken = dict(tables, cadence=[{"company": "x", "program": "y", "metric": "z", "bad": object()}])
+        with self.assertRaises(TypeError):
+            build_db.write_jsonl(broken, directory)
+        self.assertEqual(self.snapshot(directory), before)
+        self.assertEqual([p.name for p in directory.iterdir() if p.name.startswith(".")], [])
+        # a failing rename leaves no temp files behind either
+        real_replace = build_db.os.replace
+        calls = []
+
+        def flaky(src, dst):
+            calls.append(dst)
+            if len(calls) == 3:
+                raise OSError("disk full")
+            real_replace(src, dst)
+
+        build_db.os.replace = flaky
+        try:
+            with self.assertRaises(OSError):
+                build_db.write_jsonl(tables, directory)
+        finally:
+            build_db.os.replace = real_replace
+        self.assertEqual([p.name for p in directory.iterdir() if p.name.startswith(".")], [])
 
     def test_labels_preserved_across_rebuilds_on_disk(self):
         golden_dir = self.golden_dir
@@ -843,6 +928,31 @@ class SqliteTests(FixtureCase):
             self.assertIn("idx_reports_" + column, names)
         self.assertEqual(con.execute("SELECT COUNT(*) FROM latest_reports").fetchone()[0],
                          con.execute("SELECT COUNT(*) FROM reports WHERE is_latest = 1 AND removed_in_run IS NULL AND is_placeholder = 0").fetchone()[0])
+
+    def test_last_seen_run_is_derived_from_runs(self):
+        first = self.build("R1")
+        edit_csv(self.raw / "archive_ADAS.csv", lambda rows: drop_rows(rows, lambda r: r["Report ID"] != "G-300"))
+        second = self.build("R2", previous=first)
+        third = self.build("R3", previous=second)
+        path = Path(self.tmp.name) / "seen.sqlite"
+        build_db.write_sqlite(third, path)
+        con = sqlite3.connect(path)
+        self.addCleanup(con.close)
+        seen = dict(con.execute("SELECT report_key, last_seen_run FROM reports"))
+        self.assertEqual(seen["T-100|v2"], "R3")  # kept: the latest run saw it
+        self.assertEqual(seen["G-300|v1"], "R1")  # removed in R2: last seen by the run before
+        self.assertEqual(seen, golden_last_seen(third))
+        self.assertEqual(
+            dict(con.execute("SELECT report_key, first_seen_run FROM reports WHERE report_key IN ('G-300|v1', 'T-100|v2')")),
+            {"G-300|v1": "R1", "T-100|v2": "R1"})
+        # a row removed in the first run it could have been seen in has no last_seen_run
+        self.assertEqual(build_db.last_seen_runs([{"report_key": "k", "removed_in_run": "R1"}], ["R1"]), {"k": None})
+
+    def test_rules_version_in_runs(self):
+        tables, con = self.make()
+        self.assertEqual(tables["runs"][0]["rules_version"], golden.RULES_VERSION)
+        self.assertEqual(con.execute("SELECT rules_version FROM runs").fetchone()[0], golden.RULES_VERSION)
+        self.assertIsInstance(golden.RULES_VERSION, str)
 
     def test_manual_tables_keep_region_recall_units_and_date_precision(self):
         _, con = self.make()

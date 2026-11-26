@@ -220,7 +220,9 @@ Pipeline = source → golden DB. Site(s) = read-only consumers, so new chart tab
   *addition* on top of the raw data, never a replacement. Task 2's `Record` drops ~80 columns, so it is
   widened, not discarded.
 - **Every version kept.** All report versions are stored, with `is_latest`, plus
-  `first_seen_run` / `last_seen_run` / `row_hash`, so corrections and withdrawals are traceable.
+  `first_seen_run` / `removed_in_run` / `row_hash` / `previous_row_hash` in the JSONL store, so corrections
+  and withdrawals are traceable (`last_seen_run` is derived from the `runs` table when `golden.sqlite` is
+  compiled, so an unchanged refresh does not rewrite every row).
 - **Missing is explicit.** Each normalized field has a status:
   `provided | reported_unknown | redacted_cbi | not_collected_in_era | not_applicable`
   (all shown to users as "unavailable", with the reason on hover). A blank is never silently null.
@@ -230,7 +232,8 @@ Pipeline = source → golden DB. Site(s) = read-only consumers, so new chart tab
   `build_db.py` compiles `golden.sqlite` (stdlib `sqlite3`) and publishes it as a download. The
   site loads compact exports derived from it.
 - **Future AI avoidability analysis** (not built now, but the data is kept to support it): a
-  `labels` table `(report_id, label_set, label, rationale, evidence_fields, model, prompt_version,
-  run_at)`. Structured inputs are retained so a first pass needs no LLM: SV/CP contact areas
+  `labels` table `(report_key, label_set, label, rationale, evidence_fields, model, prompt_version,
+  run_at)`, keyed by `report_key` (`<Report ID>|v<version>`, i.e. per report version, so a label points at the
+  exact text it judged; built in Task 4b, replacing the earlier `report_id` sketch). Structured inputs are retained so a first pass needs no LLM: SV/CP contact areas
   (struck from behind/side), SV/CP pre-crash movement, SV speed, "ADS/ADAS engaged", road type, "crash with",
   and the narrative where not redacted. Labels are versioned and never overwrite the source data.

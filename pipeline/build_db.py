@@ -7,8 +7,10 @@ previous data/golden/*.jsonl; writes one JSONL file per table (the canonical,
 diff-friendly store that is committed) and data/golden/golden.sqlite (a build
 artifact for download, not committed). Prints the row count of every table.
 
-Run it once per refresh: every run bumps last_seen_run on every unchanged row.
-Rebuilding with the same --run-id is a no-op.
+Run it once per refresh, and only after the validation gate (Task 5) has passed.
+Unchanged reports are not rewritten, so a refresh only diffs rows that are new,
+changed or removed (plus one new row in runs.jsonl). Rebuilding with the same
+--run-id is a no-op.
 
 The JSONL files are sorted by key, with sorted keys, UTF-8 and \\n line endings,
 so a rebuild with unchanged inputs is byte-identical. reports.jsonl is split
@@ -19,6 +21,7 @@ import argparse
 import datetime
 import hashlib
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -43,8 +46,33 @@ def _report_files(directory):
     return sorted(Path(directory).glob("reports*.jsonl"))
 
 
+def _write_all(files):
+    """Write every (path, payload) atomically: all temp files first, then rename them in place.
+
+    A failure while writing leaves the existing files untouched and removes the temp files.
+    """
+    temps = []
+    try:
+        for path, payload in files:
+            temp = path.with_name("." + path.name + ".tmp")
+            temp.write_bytes(payload)
+            temps.append((temp, path))
+        for temp, path in temps:
+            os.replace(temp, path)
+    except BaseException:
+        for temp, _ in temps:
+            if temp.exists():
+                temp.unlink()
+        raise
+
+
 def write_jsonl(tables, golden_dir=GOLDEN_DIR, shard_threshold=SHARD_THRESHOLD_BYTES):
     """Write one JSONL file per table; returns [(path, bytes)].
+
+    Everything is serialized, and written to temp files in the same directory,
+    before any existing file is replaced; each file is then swapped in with an
+    atomic rename (see _write_all). A failure while serializing or writing
+    leaves the committed files untouched.
 
     reports goes to reports.jsonl, or to reports.<source_file>.jsonl shards when
     the single file would be larger than shard_threshold bytes (stale files of
@@ -52,37 +80,29 @@ def write_jsonl(tables, golden_dir=GOLDEN_DIR, shard_threshold=SHARD_THRESHOLD_B
     """
     directory = Path(golden_dir)
     directory.mkdir(parents=True, exist_ok=True)
-    written = []
-
-    def put(path, payload):
-        path.write_bytes(payload)
-        written.append((path, len(payload)))
-
+    files = []
     for table in golden.TABLES:
         if table == "labels":
-            path = directory / "labels.jsonl"
-            if not path.exists():
-                put(path, b"")
-            continue
-        if table != "reports":
-            put(directory / (table + ".jsonl"), _encode(table, tables[table]))
-            continue
-        payload = _encode("reports", tables["reports"])
-        if len(payload) <= shard_threshold:
-            keep = {directory / "reports.jsonl"}
-            put(directory / "reports.jsonl", payload)
+            if not (directory / "labels.jsonl").exists():
+                files.append((directory / "labels.jsonl", b""))
+        elif table != "reports":
+            files.append((directory / (table + ".jsonl"), _encode(table, tables[table])))
         else:
-            shards = {}
-            for row in tables["reports"]:
-                shards.setdefault(row["source_file"], []).append(row)
-            keep = set()
-            for source_file, rows in sorted(shards.items()):
-                keep.add(directory / ("reports.%s.jsonl" % source_file))
-                put(directory / ("reports.%s.jsonl" % source_file), _encode("reports", rows))
-        for stale in _report_files(directory):
-            if stale not in keep:
-                stale.unlink()
-    return written
+            payload = _encode("reports", tables["reports"])
+            if len(payload) <= shard_threshold:
+                files.append((directory / "reports.jsonl", payload))
+            else:
+                shards = {}
+                for row in tables["reports"]:
+                    shards.setdefault(row["source_file"], []).append(row)
+                for source_file, rows in sorted(shards.items()):
+                    files.append((directory / ("reports.%s.jsonl" % source_file), _encode("reports", rows)))
+    _write_all(files)
+    keep = {path for path, _ in files}
+    for stale in _report_files(directory):
+        if stale not in keep:
+            stale.unlink()
+    return [(path, len(payload)) for path, payload in files]
 
 
 def _read_jsonl(path):
@@ -124,7 +144,7 @@ def _affinity(values):
 
 def _table_columns(table, rows):
     if table == "reports":
-        preferred = golden.REPORT_COLUMNS[:-2] + ("narrative", "status", "raw")
+        preferred = golden.REPORT_COLUMNS[:-2] + ("last_seen_run", "narrative", "status", "raw")
     elif table == "labels":
         preferred = golden.LABEL_COLUMNS
     elif table in manual.COLUMNS:
@@ -137,11 +157,32 @@ def _table_columns(table, rows):
     return columns
 
 
-def _sqlite_rows(table, rows):
+def last_seen_runs(rows, run_ids):
+    """{report_key: last run that saw the row}, derived from the runs history.
+
+    A row still in the source was seen by the latest run. A removed row was last
+    seen by the run before removed_in_run (None if there was none).
+    """
+    run_ids = sorted(run_ids)
+    out = {}
+    for row in rows:
+        removed = row["removed_in_run"]
+        if removed is None:
+            out[row["report_key"]] = run_ids[-1] if run_ids else None
+        else:
+            earlier = [r for r in run_ids if r < removed]
+            out[row["report_key"]] = earlier[-1] if earlier else None
+    return out
+
+
+def _sqlite_rows(table, tables):
+    rows = tables[table]
     if table != "reports":
         return rows
+    # last_seen_run is not in the JSONL (it would change every row on every refresh).
     # The narrative text is stored once in JSONL (inside raw); sqlite also gets a flat column.
-    return [dict(r, narrative=r["raw"].get("Narrative")) for r in rows]
+    seen = last_seen_runs(rows, [r["run_id"] for r in tables["runs"]])
+    return [dict(r, last_seen_run=seen[r["report_key"]], narrative=r["raw"].get("Narrative")) for r in rows]
 
 
 def write_sqlite(tables, path):
@@ -150,16 +191,16 @@ def write_sqlite(tables, path):
     Lists and dicts (raw, status, contact areas, ...) are JSON text columns, so
     json_extract(status, '$.lighting') works; booleans are 0/1.
     """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    for leftover in (path, Path(str(path) + "-journal")):
-        if leftover.exists():
-            leftover.unlink()
+    final = Path(path)
+    final.parent.mkdir(parents=True, exist_ok=True)
+    path = final.with_name("." + final.name + ".tmp")
+    if path.exists():
+        path.unlink()
     con = sqlite3.connect(path)
     try:
         with con:
             for table in golden.TABLES:
-                rows = _sqlite_rows(table, tables[table])
+                rows = _sqlite_rows(table, tables)
                 columns = _table_columns(table, rows)
                 defs = []
                 for column in columns:
@@ -179,8 +220,12 @@ def write_sqlite(tables, path):
                 "CREATE VIEW latest_reports AS SELECT * FROM reports "
                 "WHERE is_latest = 1 AND removed_in_run IS NULL AND is_placeholder = 0"
             )
-    finally:
+    except BaseException:
         con.close()
+        path.unlink()
+        raise
+    con.close()
+    os.replace(path, final)
 
 
 # --------------------------------------------------------------------- run
