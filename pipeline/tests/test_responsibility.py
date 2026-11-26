@@ -148,6 +148,16 @@ class LabelShapeTests(unittest.TestCase):
         self.assertEqual(r["evidence_fields"]["sv_movement"], "stopped")
         self.assertEqual(r["evidence_fields"]["sv_contact_areas"], ["rear"])
 
+    def test_rationale_reads_as_plain_words(self):
+        r = judge(sv_movement="proceeding_straight", crash_with="fixed_object", speed_mph=None, cp_movement=None)
+        self.assertEqual(r["rule"], "RESP-SUB-2")
+        self.assertNotIn("_", r["rationale"])
+        self.assertNotIn("None", r["rationale"])
+        self.assertNotIn("none mph", r["rationale"])
+        self.assertIn("unknown speed", r["rationale"])
+        r = judge(sv_movement="stopped", sv_contact_areas=["front_left", "left"])
+        self.assertIn("front left, left", r["rationale"])
+
     def test_agent_hint_for_ads_programs(self):
         for program in ("waymo_ads", "zoox_ads", "gm_cruise_ads", "tesla_robotaxi", "other_ads"):
             r = judge(program=program, sv_movement="lane_departure")

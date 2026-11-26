@@ -155,9 +155,10 @@ def _evidence(report, *fields):
 
 
 def _fmt(value):
+    """A value as plain words for a rationale (front_left -> front left)."""
     if isinstance(value, (list, set, tuple)):
-        return ",".join(sorted(value)) or "none"
-    return "none" if value in (None, "") else str(value)
+        return ", ".join(v.replace("_", " ") for v in sorted(value)) or "none"
+    return "none" if value in (None, "") else str(value).replace("_", " ")
 
 
 def _agent_hint(report, label):
@@ -177,7 +178,7 @@ def _rule_oth_1(r):
         return (
             ("sv_movement", "sv_contact_areas", "crash_with"),
             "The subject vehicle was %s and was contacted at %s, which points to the other party moving into it."
-            % (r["sv_movement"], _fmt(_contacts(r))),
+            % (_fmt(r["sv_movement"]), _fmt(_contacts(r))),
         )
 
 
@@ -200,7 +201,7 @@ def _rule_oth_2(r):
         return (
             ("sv_movement", "sv_contact_areas", "crash_with"),
             "The subject vehicle was contacted only at %s while %s, which points to being struck from behind."
-            % (_fmt(_contacts(r)), r["sv_movement"]),
+            % (_fmt(_contacts(r)), _fmt(r["sv_movement"])),
         )
 
 
@@ -225,8 +226,9 @@ def _rule_sub_2(r):
     if r.get("crash_with") in NON_AGENT_PARTNERS and _sv_moving(r):
         return (
             ("crash_with", "sv_movement", "speed_mph"),
-            "The subject vehicle was moving (movement %s, speed %s mph) when it hit %s, and nobody else was involved "
-            "in the motion." % (_fmt(r.get("sv_movement")), _fmt(r.get("speed_mph")), r["crash_with"]),
+            "The subject vehicle was moving (%s) when it hit %s, and nobody else was involved in the motion."
+            % (_fmt(r.get("sv_movement")) + (", unknown speed" if r.get("speed_mph") is None
+                                              else ", %s mph" % r["speed_mph"]), _fmt(r["crash_with"])),
         )
 
 
@@ -236,7 +238,7 @@ def _rule_sub_3(r):
         return (
             ("sv_contact_areas", "cp_movement", "sv_movement", "speed_mph"),
             "The subject vehicle was moving and contacted only with its front a partner that was %s."
-            % r["cp_movement"],
+            % _fmt(r["cp_movement"]),
         )
 
 
@@ -247,7 +249,7 @@ def _rule_oth_3(r):
         return (
             ("cp_movement", "sv_movement", "sv_contact_areas"),
             "The crash partner was maneuvering (%s) while the subject vehicle was %s and contacted at %s."
-            % (r["cp_movement"], r["sv_movement"], _fmt(contacts)),
+            % (_fmt(r["cp_movement"]), _fmt(r["sv_movement"]), _fmt(contacts)),
         )
 
 
@@ -258,7 +260,7 @@ def _rule_sub_4(r):
         return (
             ("sv_movement", "sv_contact_areas", "cp_movement"),
             "The subject vehicle was maneuvering (%s) and contacted at %s a partner that was %s."
-            % (r["sv_movement"], _fmt(contacts), r["cp_movement"]),
+            % (_fmt(r["sv_movement"]), _fmt(contacts), _fmt(r["cp_movement"])),
         )
 
 
