@@ -448,21 +448,24 @@ AUDIT_DISCLAIMER = (
     "A rough keyword audit of readable narratives against the pass 1 labels, not ground truth: the cues are simple "
     "phrases, a narrative can contain both kinds, and most narratives are redacted or absent. " + DISCLAIMER
 )
-_AV = r"(?:(?:the |an? )?(?:[a-z0-9\-]+ )?(?:av|ads|autonomous vehicle|robotaxi)|zoox vehicle|(?:the )?subject vehicle|(?:the )?sv|waymo|zoox|cruise)"
+_AV = r"(?:(?:the |an? )?(?:[a-z0-9\-]+ )?(?:av|ads|autonomous vehicle|robotaxi)|(?:the )?zoox vehicle|(?:the )?subject vehicle|(?:the )?sv|waymo|zoox|cruise)"
+# The AV is the actor only at the start of a clause ("... of the AV made contact" is not).
+_CLAUSE = r"(?:^|[.;:,]\s+|\b(?:and|when|as|then|but|while|that|until|before|after|which)\s+)"
 _FLAGS = re.IGNORECASE
+_SV_VERBS = r"(?:then |subsequently |slowly |also )?(?:hit|struck|collided with|made contact with|contacted|ran into|clipped|scraped|drove into|rear[- ]?ended)"
 # (cue name, pattern); a narrative that matches any other-party cue has an "other" cue.
 OTHER_CUES = [
     ("struck from behind", re.compile(r"\b(?:struck|hit|collided|rear-ended|crashed)\b[^.]{0,50}\bfrom behind\b", _FLAGS)),
-    ("rear-ended", re.compile(r"\brear[- ]?ended\b", _FLAGS)),
-    ("was struck/hit by", re.compile(r"\bwas (?:struck|hit) by\b", _FLAGS)),
-    ("collided with the rear of", re.compile(r"\b(?:collided with|struck|hit|made contact with) the (?:rear|back) of the\b", _FLAGS)),
-    ("hit/struck the AV", re.compile(r"\b(?:hit|struck) the " + _AV + r"\b", _FLAGS)),
-    ("while stationary", re.compile(r"\bwhile (?:stationary|stopped|parked)\b|\b" + _AV + r" (?:was|remained) (?:stationary|stopped|parked)\b", _FLAGS)),
+    ("rear-ended", re.compile(r"\b(?:was|were|been|being|got) rear[- ]?ended\b|\brear[- ]?ended (?:by|the " + _AV + r")\b", _FLAGS)),
+    ("was struck/hit/contacted by", re.compile(r"\bwas (?:struck|hit|contacted|sideswiped) by\b", _FLAGS)),
+    ("contacted a part of the AV", re.compile(
+        r"\b(?:collided with|struck|hit|made contact with|contacted|sideswiped) the (?:[a-z'\-]+ ){0,5}?of " + _AV + r"\b", _FLAGS)),
+    ("hit/struck/contacted the AV", re.compile(r"\b(?:hit|struck|collided with|made contact with|contacted|sideswiped) the " + _AV + r"\b", _FLAGS)),
+    ("while stationary", re.compile(
+        r"\bwhile stationary\b|\b" + _AV + r" (?:was|remained) stationary\b", _FLAGS)),
 ]
 SV_CUES = [
-    ("AV hit/struck/contacted", re.compile(
-        r"\b" + _AV + r" (?:then |subsequently |slowly |also )?(?:hit|struck|collided with|made contact with|contacted|ran into|clipped|scraped|drove into)\b",
-        _FLAGS)),
+    ("AV hit/struck/contacted", re.compile(_CLAUSE + _AV + r"(?:'s (?:[a-z\-]+ ){0,4}?| )" + _SV_VERBS + r"\b", _FLAGS)),
     ("contacted a parked/stationary/stopped", re.compile(r"\bcontacted an? (?:parked|stationary|stopped)\b", _FLAGS)),
 ]
 AUDIT_EXAMPLES = 15

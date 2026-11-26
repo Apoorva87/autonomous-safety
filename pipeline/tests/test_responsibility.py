@@ -382,6 +382,31 @@ class CueTests(unittest.TestCase):
                        "The ADS made contact with a low-hanging chain."):
             self.assertEqual(self.cue(phrase)[0], "subject_vehicle", phrase)
 
+    def test_the_av_must_start_the_clause_to_be_the_actor(self):
+        kind, _ = self.cue("A pickup in the lane to the right of the AV made contact with the AV.")
+        self.assertEqual(kind, "other")  # the pickup acted; the AV only appears after "of"
+
+    def test_rear_ended_depends_on_who_did_it(self):
+        self.assertEqual(self.cue("The AV rear-ended a stopped car.")[0], "subject_vehicle")
+        self.assertEqual(self.cue("A truck rear-ended the AV.")[0], "other")
+        self.assertEqual(self.cue("The Waymo AV was rear-ended.")[0], "other")
+        self.assertEqual(self.cue("The driver said they rear-ended another vehicle.")[0], "none")
+
+    def test_a_part_of_the_av_being_contacted_is_an_other_party_cue(self):
+        self.assertEqual(self.cue("A passenger car made contact with the left side of the Waymo AV.")[0], "other")
+        self.assertEqual(self.cue("A van made contact with the rear driver's side bumper of the AV.")[0], "other")
+        self.assertEqual(self.cue("The Waymo AV was contacted by a scooter.")[0], "other")
+
+    def test_a_part_of_the_av_making_contact_is_a_subject_vehicle_cue(self):
+        self.assertEqual(self.cue("The Waymo AV's front bumper made contact with a traffic cone.")[0], "subject_vehicle")
+        self.assertEqual(self.cue("The front of the AV made contact with the rear of the van.")[0], "none")
+
+    def test_the_rear_of_something_else_is_not_an_other_party_cue(self):
+        self.assertEqual(self.cue("The front of the AV made contact with the rear of the van.")[0], "none")
+
+    def test_stopped_then_moved_is_not_a_stationary_cue(self):
+        self.assertEqual(self.cue("The ADS was stopped and proceeded straight on the street.")[0], "none")
+
     def test_both_and_none(self):
         self.assertEqual(self.cue(NARR["both"])[0], "both")
         self.assertEqual(self.cue(NARR["none"])[0], "none")
