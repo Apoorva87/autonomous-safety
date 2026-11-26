@@ -35,6 +35,13 @@ npm run preview     # serve dist/ at http://localhost:4173/autonomous-safety/
 The base path is `/autonomous-safety/` (`vite.config.ts`) and data is fetched relative to
 `import.meta.env.BASE_URL`. To deploy, publish the contents of `dist/` to the `gh-pages` branch.
 
+## Rates tab
+
+`src/Rates.tsx` with `src/lib/metrics.ts` (scope-matched rates, exact Poisson CI in `lib/poisson.ts`), `src/state/scenario.ts`
+(assumptions kept in the URL query string) and `src/components/` (dual-axis chart, funnel plot, source badge, scenario panel,
+coverage matrix, Tesla report panel). It reads `exposure.json`, `counts.json`, `lag.json`, `events.json`, `sources.json`,
+`company_reported.json` and `records.json`, never `narratives.json`. Tests: `npm test`.
+
 ## Notes
 
 - Strings from the CSVs are only rendered as React text, never as HTML.

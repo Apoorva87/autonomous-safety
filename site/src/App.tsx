@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useData, fmt } from './data';
 import { useMode } from './theme';
 import { Overview } from './Overview';
+import { Rates } from './Rates';
 import { Explorer } from './Explorer';
 import { Patterns } from './Patterns';
 import { TransparencyTab } from './TransparencyTab';
@@ -9,6 +10,7 @@ import { Sources } from './Sources';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
+  { id: 'rates', label: 'Rates' },
   { id: 'explorer', label: 'Crash explorer' },
   { id: 'patterns', label: 'Patterns' },
   { id: 'transparency', label: 'Transparency' },
@@ -55,7 +57,7 @@ export function App() {
       </header>
 
       <div className="banner" role="note">
-        <strong>Preview: counts only.</strong> Normalized rates need sourced mileage and fleet data, in progress.
+        <strong>Preview.</strong> Counts are as filed with NHTSA. Rates (Rates tab) are drawn only where a sourced denominator exists, always with a 95% interval; many denominators are estimates.
       </div>
 
       <nav className="tabs" aria-label="Sections">
@@ -75,6 +77,7 @@ export function App() {
         {error && <p className="error">Could not load the data files ({error}).</p>}
         {!data && !error && <p className="loading">Loading about 8,700 crash records…</p>}
         {data && tab === 'overview' && <Overview data={data} mode={mode} />}
+        {data && tab === 'rates' && <Rates data={data} mode={mode} />}
         {data && tab === 'explorer' && <Explorer data={data} mode={mode} />}
         {data && tab === 'patterns' && <Patterns data={data} mode={mode} />}
         {data && tab === 'transparency' && <TransparencyTab data={data} mode={mode} />}
