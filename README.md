@@ -189,5 +189,6 @@ console. `--offline` reuses `data/raw/`.
 
 ## License and data terms
 
-NHTSA data is U.S. government public data. Company figures are quoted with attribution for
-analysis; follow each source's terms. Code license: to be decided by the repository owner.
+Code: [MIT](LICENSE). NHTSA data is U.S. government public data. Company figures are quoted with attribution
+for analysis; follow each source's terms (see `data/manual/sources.csv`). Nothing here is legal, safety or
+investment advice.
