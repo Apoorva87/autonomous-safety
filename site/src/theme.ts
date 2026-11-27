@@ -42,6 +42,13 @@ export const PROGRAMS: ProgramInfo[] = [
 ];
 export const PROGRAM_BY_KEY: Record<string, ProgramInfo> = Object.fromEntries(PROGRAMS.map((p) => [p.key, p]));
 
+// Inferred-label colours (nominal): other party = blue, own motion = orange, cannot tell = neutral gray (deliberately not a hue).
+export const LABEL_COLOR: Record<'other_party' | 'subject_vehicle_initiated' | 'indeterminate', Pair> = {
+  other_party: { light: '#2a78d6', dark: '#3987e5' },
+  subject_vehicle_initiated: { light: '#eb6834', dark: '#d95926' },
+  indeterminate: { light: '#8a929a', dark: '#7b838b' },
+};
+
 export const SEVERITY_ORDER = ['none', 'minor', 'moderate', 'serious', 'fatal', 'unknown'];
 export const SEVERITY_LABEL: Record<string, string> = {
   none: 'No injury',

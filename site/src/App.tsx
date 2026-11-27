@@ -14,9 +14,9 @@ const Cities = lazy(() => import('./Cities').then((m) => ({ default: m.Cities })
 const Timeline = lazy(() => import('./Timeline').then((m) => ({ default: m.Timeline })));
 const Learning = lazy(() => import('./Learning').then((m) => ({ default: m.Learning })));
 const Claims = lazy(() => import('./Claims').then((m) => ({ default: m.Claims })));
+const Responsibility = lazy(() => import('./Responsibility').then((m) => ({ default: m.Responsibility })));
 
 // Tab order: overview and rates first, the compound views next, the raw explorer and reference tabs last.
-// A Responsibility tab (from responsibility.json) goes after 'claims' when that view exists.
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'rates', label: 'Rates' },
@@ -25,6 +25,7 @@ const TABS = [
   { id: 'timeline', label: 'Timeline' },
   { id: 'learning', label: 'Learning' },
   { id: 'claims', label: 'Claims vs filings' },
+  { id: 'responsibility', label: 'Responsibility' },
   { id: 'explorer', label: 'Crash explorer' },
   { id: 'patterns', label: 'Patterns' },
   { id: 'transparency', label: 'Transparency' },
@@ -119,6 +120,7 @@ export function App() {
           {data && tab === 'timeline' && <Timeline data={data} mode={mode} />}
           {data && tab === 'learning' && <Learning data={data} mode={mode} />}
           {data && tab === 'claims' && <Claims data={data} mode={mode} />}
+          {data && tab === 'responsibility' && <Responsibility data={data} mode={mode} />}
         </Suspense>
         {data && tab === 'explorer' && <Explorer data={data} mode={mode} />}
         {data && tab === 'patterns' && <Patterns data={data} mode={mode} />}
