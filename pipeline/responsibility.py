@@ -461,7 +461,56 @@ FIELDS = ["report_id", "report_key", "incident_key", "program", "month", "label"
           "agent_hint",
           # Display fields of the report itself (not of the incident's primary report), so every row can be drawn alone.
           "severity", "sv_movement", "cp_movement", "crash_with", "sv_contact_areas", "speed_band",
-          "automation_engaged", "evidence"]
+          "automation_engaged", "evidence",
+          # Own-motion sub-kind of this report (null unless its label is own motion), and the crash-level roll-up:
+          # crash_rep marks one row per (program, incident) (the program's highest-severity report, ties: lowest id),
+          # crash_label is that crash's label and crash_own_kind its own-motion sub-kind.
+          "own_kind", "crash_rep", "crash_label", "crash_own_kind"]
+
+# Own-motion sub-kinds by crash partner, so "own motion" is not read as "struck another road user".
+OWN_KINDS = ("fixed_object", "animal", "road_user", "other")
+_FIXED = frozenset({"fixed_object", "pole_tree"})
+_NOT_ROAD_USER = _FIXED | {"animal", "other", "unknown", None, ""}
+CRASH_ROLLUP = (
+    "One crash per program and incident: the label every labelled report of the program agrees on (reports that cannot "
+    "tell are ignored when another report of the same crash is labelled); cannot tell when no report is labelled or the "
+    "labelled reports disagree (counted in crash_conflicts)."
+)
+
+
+def own_kind(crash_with):
+    """Own-motion sub-kind from the crash partner: fixed_object, animal, road_user or other."""
+    if crash_with in _FIXED:
+        return "fixed_object"
+    if crash_with == "animal":
+        return "animal"
+    if crash_with in _NOT_ROAD_USER:
+        return "other"
+    return "road_user"
+
+
+def _crash_rollup(pairs):
+    """{report_key: (crash_rep, crash_label, crash_own_kind)} and per-program conflict counts."""
+    groups = defaultdict(list)
+    for r, l in pairs:
+        groups[(r["program"], r["incident_key"])].append((r, l))
+    out, conflicts = {}, Counter()
+    for (program, _), members in groups.items():
+        rep = min(members, key=lambda m: (-golden.SEVERITY_RANK.get(m[0].get("severity"), 0), m[0]["report_id"]))
+        determinate = sorted({l["label"] for _, l in members if l["label"] != INDETERMINATE})
+        if len(determinate) == 1:
+            label = determinate[0]
+        else:
+            label = INDETERMINATE
+            if len(determinate) > 1:
+                conflicts[program] += 1
+        kind = None
+        if label == SV_INITIATED:
+            own = sorted((m for m in members if m[1]["label"] == SV_INITIATED), key=lambda m: m[0]["report_id"])
+            kind = own_kind(own[0][0].get("crash_with"))
+        for r, _ in members:
+            out[r["report_key"]] = (r["report_key"] == rep[0]["report_key"], label, kind)
+    return out, dict(sorted(conflicts.items()))
 
 
 def _evidence_pairs(evidence):
@@ -496,6 +545,7 @@ def build_responsibility(pairs, run_id):
     # sets for 9,000 rows), listed in order of first use so the file is deterministic.
     evidence_sets, index = [], {}
     rows = []
+    rollup, conflicts = _crash_rollup(pairs)
     for r, l in pairs:
         pairs_ = _evidence_pairs(l.get("evidence_fields"))
         key = tuple(pairs_)
@@ -507,14 +557,33 @@ def build_responsibility(pairs, run_id):
             l["basis"], l["rule"], l["agent_hint"],
             r.get("severity"), r.get("sv_movement"), r.get("cp_movement"), r.get("crash_with"),
             list(r.get("sv_contact_areas") or []), r.get("speed_band"), r.get("automation_engaged"), index[key],
+            own_kind(r.get("crash_with")) if l["label"] == SV_INITIATED else None,
+            *rollup[r["report_key"]],
         ])
     counts = {}
     for r, l in pairs:
         slot = counts.setdefault(r["program"], {}).setdefault(l["label"], {})
         slot[l["confidence"]] = slot.get(l["confidence"], 0) + 1
+    crash_counts, own_kinds = {}, {}
+    for r, _ in pairs:
+        is_rep, label, kind = rollup[r["report_key"]]
+        if not is_rep:
+            continue
+        slot = crash_counts.setdefault(r["program"], {})
+        slot[label] = slot.get(label, 0) + 1
+        if kind:
+            ks = own_kinds.setdefault(r["program"], {})
+            ks[kind] = ks.get(kind, 0) + 1
     return {
         "label_set": LABEL_SET, "rules_version": RULES_VERSION, "generated_for_run": run_id, "disclaimer": DISCLAIMER,
-        "fields": list(FIELDS), "evidence_sets": evidence_sets, "rows": rows, "summary": {"counts": counts},
+        "fields": list(FIELDS), "evidence_sets": evidence_sets, "rows": rows,
+        "crash_rollup": CRASH_ROLLUP, "own_kinds": list(OWN_KINDS),
+        "summary": {
+            "counts": counts,
+            "crash_counts": {p: dict(sorted(v.items())) for p, v in sorted(crash_counts.items())},
+            "crash_conflicts": conflicts,
+            "crash_own_kinds": {p: dict(sorted(v.items())) for p, v in sorted(own_kinds.items())},
+        },
     }
 
 

@@ -102,7 +102,7 @@ class CountTests(unittest.TestCase):
         self.assertEqual(sum(r["reports"] for r in counts_rows(reports) if r["program"] == "waymo_ads"), 2)
 
     def test_lag_reports_match_counts_reports_per_program(self):
-        reports = [rec("1", "a", lag_days=3), rec("2", "b", lag_days=None), rec("3", "c", program="other_ads", lag_days=9)]
+        reports = [rec("1", "a", submitted="2025-01-31"), rec("2", "b", submitted=None), rec("3", "c", program="other_ads", submitted="2025-02-28")]
         current = agg.current_reports(tables_of(reports))
         lag = agg.build_lag(current)["programs"]
         for program, entry in lag.items():
@@ -121,7 +121,7 @@ class CountTests(unittest.TestCase):
         ]
         rows = {(r["program"], r["file"]): r for r in counts_rows(reports)}
         waymo = rows[("waymo_ads", "ADS")]
-        self.assertEqual(set(waymo), {"program", "company", "month", "file", "reports", "crashes", "fatal", "serious_plus", "injury", "vru", "vru_field"})
+        self.assertEqual(set(waymo), {"program", "company", "month", "file", "reports", "crashes", "robust_crashes", "fatal", "serious_plus", "injury", "vru", "vru_field"})
         self.assertEqual(
             (waymo["month"], waymo["company"], waymo["reports"], waymo["crashes"], waymo["fatal"], waymo["serious_plus"], waymo["injury"], waymo["vru"]),
             ("2025-01", "waymo", 6, 6, 1, 2, 4, 1),
@@ -260,21 +260,142 @@ class TransparencyAndLagTests(unittest.TestCase):
             c = cells[field]
             self.assertAlmostEqual(c["provided"] + c["unknown"] + c["redacted"], 1.0)
 
-    def test_lag_cdf_per_program(self):
-        reports = [rec(str(i), str(i), lag_days=d) for i, d in enumerate([0, 0, 31, 61, 400])]
-        reports.append(rec("x", "x", lag_days=None))  # no lag: not in the distribution
-        reports.append(rec("t", "t", program="tesla_l2", lag_days=30))
+    def test_lag_is_in_whole_months_per_regime_and_not_pooled(self):
+        def sub(month, lag):
+            y, m = int(month[:4]), int(month[5:]) + lag
+            y, m = y + (m - 1) // 12, (m - 1) % 12 + 1
+            return "%04d-%02d-28" % (y, m)
+        reports = []
+        # current era (post): incidents 2026-01..2026-06, data through 2026-06
+        for i, (month, lag) in enumerate([("2026-01", 0), ("2026-01", 2), ("2026-02", 0), ("2026-02", 1), ("2026-03", 0),
+                                          ("2026-04", 0), ("2026-05", 0), ("2026-06", 0)]):
+            reports.append(rec("c%d" % i, "c%d" % i, month=month, submitted=sub(month, lag)))
+        # archive era (pre): slow filer
+        for i, (month, lag) in enumerate([("2024-01", 0), ("2024-01", 1), ("2024-02", 1), ("2024-03", 3)]):
+            reports.append(rec("a%d" % i, "a%d" % i, month=month, submitted=sub(month, lag), era="archive"))
+        reports.append(rec("x", "x", month=None, submitted=None))  # no lag: not in the distribution
         lag = agg.build_lag(agg.current_reports(tables_of(reports)))
-        self.assertEqual(lag["days"], list(range(0, 366, 15)))
         self.assertEqual(lag["resolution"], "month")
+        self.assertEqual(lag["months"], list(range(0, 13)))
+        self.assertIs(lag["pooled"], False)
+        self.assertNotIn("days", lag)
         waymo = lag["programs"]["waymo_ads"]
-        self.assertEqual(waymo["n"], 5)
-        self.assertEqual(len(waymo["cdf"]), len(lag["days"]))
-        self.assertEqual(waymo["cdf"][0], 0.4)
-        self.assertEqual(waymo["cdf"][lag["days"].index(30)], 0.4)
-        self.assertEqual(waymo["cdf"][lag["days"].index(45)], 0.6)
-        self.assertEqual(waymo["cdf"][-1], 0.8)  # the 400-day report is beyond the grid
-        self.assertEqual(waymo["cdf"], sorted(waymo["cdf"]))
+        self.assertEqual(waymo["n_reports"], 13)
+        post, pre = waymo["regimes"]["post"], waymo["regimes"]["pre"]
+        self.assertEqual((post["n"], pre["n"]), (8, 4))
+        for cdf in (post["cdf"], pre["cdf"]):
+            self.assertEqual(len(cdf), 13)
+            self.assertEqual(cdf, sorted(cdf))
+            self.assertEqual(cdf[-1], 1.0)
+        self.assertLess(post["cdf"][0], 1.0)
+        self.assertGreater(post["cdf"][0], pre["cdf"][0])  # the regimes differ and are kept apart
+        # the late-report histogram by severity group adds up to the regime's reports
+        self.assertEqual(sum(sum(v) for v in waymo["hist"]["post"].values()), 8)
+
+    def test_chain_ladder_completeness(self):
+        # three incidents per month for months 0..2, all observed to month 4; lags 0, 0, 1 each month
+        pairs = [(m, lag) for m in range(3) for lag in (0, 0, 1)]
+        cdf = agg.chain_ladder_cdf(pairs, last=4, horizon=3)
+        self.assertEqual(cdf[-1], 1.0)
+        self.assertAlmostEqual(cdf[0], 2 / 3, places=4)
+        self.assertEqual(cdf[1], 1.0)
+
+
+class RegimeExportTests(unittest.TestCase):
+    def records_of(self, reports):
+        current = agg.crash_reports(tables_of(reports))
+        out = agg.build_records(agg.program_incidents(current), agg.programs_per_incident(current))
+        return {r[0]: dict(zip(out["fields"], r)) for r in out["rows"]}
+
+    def test_records_carry_the_robust_class_as_a_union_over_the_programs_reports(self):
+        reports = [
+            rec("1", "K", airbag=None), rec("2", "K", towed=True),              # same Waymo incident: robust via report 2
+            rec("3", "J"),                                                      # minor contact: not robust
+            rec("4", "T", program="tesla_l2", towed=True, kind="ADAS"),         # L2 tow-only: not robust
+            rec("5", "U", program="tesla_l2", airbag=True, kind="ADAS"),
+        ]
+        rows = self.records_of(reports)
+        self.assertEqual({k: v["robust"] for k, v in rows.items()}, {"1": True, "3": False, "4": False, "5": True})
+
+    def test_counts_have_robust_crashes(self):
+        reports = [rec("1", "K", severity="minor"), rec("2", "J"), rec("3", "L", crash_with="pedestrian")]
+        rows = agg.build_counts(agg.crash_reports(tables_of(reports)))["rows"]
+        self.assertEqual(sum(r["robust_crashes"] for r in rows), 2)
+        self.assertEqual(sum(r["crashes"] for r in rows), 3)
+
+    def test_records_carry_hour_and_light(self):
+        reports = [
+            rec("1", "a", incident_time="02:15", month="2025-07"),
+            rec("2", "b", incident_time="12:00", lighting="dark_lighted", era="archive", month="2024-07"),
+            rec("3", "c", incident_time=None),
+        ]
+        rows = self.records_of(reports)
+        self.assertEqual((rows["1"]["hour"], rows["1"]["light_condition"], rows["1"]["light_condition_basis"]), (2, "night", "derived from time"))
+        self.assertEqual((rows["2"]["light_condition"], rows["2"]["light_condition_basis"], rows["2"]["light_from_time"]), ("night", "recorded", "day"))
+        self.assertEqual((rows["3"]["hour"], rows["3"]["light_condition"], rows["3"]["light_condition_basis"]), (None, "unknown", None))
+
+    def test_tesla_hours_are_local_after_converting_from_utc(self):
+        reports = [rec("1", "a", entity="Tesla, Inc.", program="tesla_l2", kind="ADAS", incident_time="22:30", state="CA", month="2025-07"),
+                   rec("2", "b", entity="Waymo LLC", incident_time="22:30", state="CA", month="2025-07")]
+        rows = self.records_of(reports)
+        self.assertEqual((rows["1"]["hour"], rows["1"]["time_basis"], rows["1"]["light_from_time"]), (15, "utc", "day"))
+        self.assertEqual((rows["2"]["hour"], rows["2"]["time_basis"]), (22, "filed"))
+
+    def test_verified_not_engaged_reports_are_not_program_crashes(self):
+        reports = [
+            rec("1", "K"), rec("2", "J", engagement_status="verified_not_engaged"),
+            rec("3", "L", engagement_status="alleged_engaged"),
+            rec("4", "M", engagement_status="verified_not_engaged", program="tesla_l2", kind="ADAS"),
+        ]
+        tables = tables_of(reports, incidents=[{"incident_key": k} for k in "KJLM"])
+        self.assertEqual({r["report_id"] for r in agg.crash_reports(tables)}, {"1", "3"})
+        self.assertEqual(len(agg.current_reports(tables)), 4)
+        summary = agg.not_engaged_summary(agg.current_reports(tables))
+        self.assertEqual(summary["total"], 2)
+        self.assertEqual(summary["by_program"], {"tesla_l2": 1, "waymo_ads": 1})
+        self.assertEqual(summary["report_ids"], ["2", "4"])
+        outputs, _ = agg.build_all(tables, fetch_log=[], run_id="r", run_at=RUN_AT, today=TODAY)
+        self.assertEqual(len(outputs["records.json"]["rows"]), 2)
+        self.assertEqual(outputs["meta.json"]["not_engaged"]["total"], 2)
+        self.assertEqual(sum(r["crashes"] for r in outputs["counts.json"]["rows"]), 2)
+        self.assertEqual(validate.check_outputs(outputs, tables), [])
+        self.assertIn("robust_definition", outputs["meta.json"])
+        self.assertIn("light_rule", outputs["meta.json"])
+
+
+class RevisionTests(unittest.TestCase):
+    def test_revision_shares_and_unknown_fields_first_vs_latest(self):
+        unknown = {"sv_movement": "reported_unknown", "crash_with": "reported_unknown", "cp_movement": "reported_unknown",
+                   "sv_contact_areas": "reported_unknown", "roadway_type": "reported_unknown", "speed_mph": "reported_unknown",
+                   "severity": "reported_unknown"}
+        known = {k: "provided" for k in unknown}
+        reports = [
+            # T1: a stub first version, filled in by v2 two months later
+            rec("T1", "a", program="tesla_l2", month="2024-05", status=unknown, is_latest=False, submitted="2024-05-31"),
+            rec("T1", "a", program="tesla_l2", month="2024-05", status=known, report_key="T1|v2", version=2, submitted="2024-07-31"),
+            # T2: never revised, everything unknown
+            rec("T2", "b", program="tesla_l2", month="2024-05", status=unknown, submitted="2024-05-31"),
+            # T3: never revised, known
+            rec("T3", "c", program="tesla_l2", month="2024-05", status=known, submitted="2024-05-31"),
+            # placeholders and removed rows are ignored
+            rec("P", "p", program="tesla_l2", month="2024-05", is_placeholder=True, status=known),
+            rec("R", "r", program="tesla_l2", month="2024-05", removed_in_run="r0", is_latest=False, status=known),
+        ]
+        out = agg.build_revisions(tables_of(reports))
+        self.assertEqual(out["fields"][:3], ["sv_movement", "crash_with", "cp_movement"])
+        rows = [r for r in out["rows"] if r["program"] == "tesla_l2"]
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual((row["month"], row["reports"], row["revised"], row["versions"]), ("2024-05", 3, 1, 4))
+        i = out["fields"].index("sv_movement")
+        self.assertEqual(row["first_unknown_revised"][i], 1)
+        self.assertEqual(row["latest_unknown_revised"][i], 0)
+        self.assertEqual(row["unknown_single"][i], 1)
+        self.assertEqual(row["unknown_latest"][i], 1)
+        self.assertEqual(row["all_unknown_latest"], 1)
+        self.assertEqual(row["all_unknown_first_revised"], 1)
+        self.assertEqual(row["gap_months"], {"2": 1})
+        self.assertEqual(out["total_reports"], 3)
 
 
 class FixtureBuildTests(unittest.TestCase):

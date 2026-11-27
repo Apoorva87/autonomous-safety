@@ -390,11 +390,22 @@ def check_outputs(outputs, tables):
     """Post-aggregate checks (errors only)."""
     from . import aggregate
 
-    reports = aggregate.current_reports(tables)
-    incidents = len({r["incident_key"] for r in reports})
+    current = aggregate.current_reports(tables)
+    reports = aggregate.crash_reports(tables)  # current reports minus "Verified Not Engaged"
+    incidents = len({r["incident_key"] for r in current})
     errors = check_counts(outputs["counts.json"]["rows"], reports, outputs["meta.json"]["counts_total"]["unique_incidents"])
     if incidents != len(tables["incidents"]):
         errors.append("golden incidents table has %d rows but the reports hold %d unique incidents" % (len(tables["incidents"]), incidents))
+    left_out = len(current) - len(reports)
+    if outputs["meta.json"].get("not_engaged", {}).get("total", left_out) != left_out:
+        errors.append("meta.json not_engaged total is %s but %d current reports are verified not engaged"
+                      % (outputs["meta.json"]["not_engaged"]["total"], left_out))
+    revisions = outputs.get("revisions.json")
+    if revisions is not None and revisions["total_reports"] != len(current):
+        errors.append("revisions.json covers %d reports but there are %d current non-placeholder reports"
+                      % (revisions["total_reports"], len(current)))
+    if revisions is not None and sum(r["reports"] for r in revisions["rows"]) != revisions["total_reports"]:
+        errors.append("revisions.json rows do not add up to total_reports")
     errors.extend(check_records(outputs["records.json"], outputs["counts.json"]["rows"], reports))
     reports_by_program = Counter(r["program"] for r in reports)
     for program, entry in outputs["lag.json"]["programs"].items():

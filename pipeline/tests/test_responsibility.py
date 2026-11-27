@@ -407,7 +407,7 @@ class OutputTests(unittest.TestCase):
         self.assertEqual(data["fields"], [
             "report_id", "report_key", "incident_key", "program", "month", "label", "confidence", "basis", "rule",
             "agent_hint", "severity", "sv_movement", "cp_movement", "crash_with", "sv_contact_areas", "speed_band",
-            "automation_engaged", "evidence"])
+            "automation_engaged", "evidence", "own_kind", "crash_rep", "crash_label", "crash_own_kind"])
         self.assertEqual([r[1] for r in data["rows"]], ["A|v1", "B|v1", "C|v1", "D|v1"])
         self.assertEqual(data["rows"][0][:10], ["A", "A|v1", "I1", "waymo_ads", "2025-02", "other_party", "high", "field",
                                                 "RESP-OTH-1", None])
@@ -435,8 +435,9 @@ class OutputTests(unittest.TestCase):
         self.assertEqual(sets[rows["A"]["evidence"]], ["crash_with=passenger_car", "sv_contact_areas=front", "sv_movement=stopped"])
         self.assertEqual(sets[rows["B"]["evidence"]], ["sv_movement=lane_departure"])
         self.assertEqual(len({tuple(s) for s in sets}), len(sets))  # each distinct set once
+        at = data["fields"].index("evidence")
         for r in data["rows"]:
-            self.assertTrue(all("=" in p for p in sets[r[-1]]))
+            self.assertTrue(all("=" in p for p in sets[r[at]]))
 
     def test_output_is_deterministic(self):
         again = resp.build_outputs(self.reports, labelled(self.reports), "r1")
@@ -458,6 +459,44 @@ class OutputTests(unittest.TestCase):
         stale = dict(self.labels[0], report_key="GONE|v1")
         out = resp.build_outputs(self.reports, self.labels + [foreign, stale], "r1")
         self.assertEqual(len(out["responsibility.json"]["rows"]), 4)
+
+    def test_own_motion_is_split_into_sub_kinds(self):
+        self.assertEqual(resp.own_kind("fixed_object"), "fixed_object")
+        self.assertEqual(resp.own_kind("pole_tree"), "fixed_object")
+        self.assertEqual(resp.own_kind("animal"), "animal")
+        self.assertEqual(resp.own_kind("passenger_car"), "road_user")
+        self.assertEqual(resp.own_kind("cyclist"), "road_user")
+        self.assertEqual(resp.own_kind("other"), "other")
+        self.assertEqual(resp.own_kind(None), "other")
+        data = self.out["responsibility.json"]
+        rows = {r[0]: dict(zip(data["fields"], r)) for r in data["rows"]}
+        self.assertEqual(rows["B"]["own_kind"], "road_user")  # lane departure into a passenger car
+        self.assertIsNone(rows["A"]["own_kind"])  # not own motion
+
+    def test_crash_level_roll_up_one_row_per_program_and_incident(self):
+        reports = [
+            # two GM Cruise reports of one incident: one labelled, one cannot tell -> the crash takes the label
+            report(report_key="E|v1", report_id="E", incident_key="J", program="gm_cruise_ads", sv_movement="stopped", severity="none"),
+            report(report_key="F|v1", report_id="F", incident_key="J", program="gm_cruise_ads", sv_movement=None, sv_contact_areas=[]),
+            # conflicting determinate labels -> cannot tell at crash level, counted as a conflict
+            report(report_key="G|v1", report_id="G", incident_key="K", program="gm_cruise_ads", sv_movement="stopped"),
+            report(report_key="H|v1", report_id="H", incident_key="K", program="gm_cruise_ads", sv_movement="lane_departure"),
+            # own motion into a fixed object
+            report(report_key="I|v1", report_id="I", incident_key="L", program="waymo_ads", crash_with="fixed_object",
+                   sv_movement="proceeding_straight"),
+        ]
+        out = resp.build_outputs(reports, labelled(reports), "r1")["responsibility.json"]
+        rows = {r[0]: dict(zip(out["fields"], r)) for r in out["rows"]}
+        reps = [k for k, v in rows.items() if v["crash_rep"]]
+        self.assertEqual(sorted(reps), ["F", "G", "I"])  # highest severity, then lowest report id
+        self.assertEqual({rows[k]["crash_label"] for k in "EF"}, {"other_party"})
+        self.assertEqual({rows[k]["crash_label"] for k in "GH"}, {"indeterminate"})
+        self.assertEqual(rows["I"]["crash_label"], "subject_vehicle_initiated")
+        self.assertEqual(rows["I"]["crash_own_kind"], "fixed_object")
+        summary = out["summary"]
+        self.assertEqual(summary["crash_counts"]["gm_cruise_ads"], {"other_party": 1, "indeterminate": 1})
+        self.assertEqual(summary["crash_conflicts"], {"gm_cruise_ads": 1})
+        self.assertEqual(summary["crash_own_kinds"]["waymo_ads"], {"fixed_object": 1})
 
     def test_rules_file_lists_rules_and_labels(self):
         data = self.out["responsibility_rules.json"]
