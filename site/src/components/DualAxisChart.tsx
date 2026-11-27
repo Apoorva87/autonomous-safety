@@ -1,3 +1,4 @@
+import { FLAG_PATH } from './FlagNote';
 import { useEffect, useMemo, useState } from 'react';
 import type { EChartsCoreOption } from 'echarts/core';
 import { EChart } from '../EChart';
@@ -147,6 +148,16 @@ export function DualAxisChart({
           data: nd.map((p) => [axis.xOf(p.period), 0]),
         });
       }
+      // Months whose exposure the pipeline flags as unreliable (>3x adjacent segments): a flag above the point.
+      const fl = s.points.filter((p) => p.flag);
+      if (fl.length) {
+        all.push({
+          id: `flag:${s.key}`, name: `${s.label} unreliable exposure`, type: 'scatter', yAxisIndex: 0, z: 6, silent: true, tooltip: { show: false },
+          symbol: FLAG_PATH, symbolSize: [11, 14], symbolOffset: [5, -16],
+          itemStyle: { color: mode === 'dark' ? '#e0693a' : '#b3361a', borderColor: t.surface, borderWidth: 0.5 },
+          data: fl.map((p) => [axis.xOf(p.period), p.hi ?? p.rate ?? 0]),
+        });
+      }
       const lb = s.points.filter((p) => p.lowerBound && p.lo != null);
       if (lb.length) {
         all.push({
@@ -182,6 +193,7 @@ export function DualAxisChart({
             if (pt.lowSample && pt.rate != null) tags.push('low sample / estimate (hatched)');
             if (pt.scenario) tags.push('scenario');
             if (pt.partial && pt.volume != null) tags.push('partial period');
+            if (pt.flag) tags.push('\u2691 unreliable monthly exposure: ' + pt.flag);
             const body =
               pt.rate == null && !pt.lowerBound
                 ? `<span>no data: ${esc(pt.reason ?? 'no denominator')}</span>`

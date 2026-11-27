@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ci95 } from './poisson';
-import { series, lagFactor, type CountsByMonth, type ExposureRow } from './metrics';
+import { series, lagFactor, methodFlag, type CountsByMonth, type ExposureRow } from './metrics';
 import { DEFAULT_SCENARIO, type Scenario } from '../state/scenario';
 
 const mc = (n: number) => ({ crashes: n, reports: n + 1, fatal: 0, serious_plus: 0, injury: 0, vru: 0 });
@@ -100,5 +100,22 @@ describe('series', () => {
     const v = find(series(c, veh, DEFAULT_SCENARIO, { ...o, metric: 'per10kVeh' }), '2025');
     expect(v.rate).toBeCloseTo((60 / 1000) * 1e4, 9);
     expect(v.scenario).toBe(false);
+  });
+});
+
+describe('exposure method flag (>3x adjacent segments)', () => {
+  const note = 'Derived: cumulative miles at 2024-07-31 minus cumulative miles at 2024-06-30. Note: adjacent disclosure segments differ by >3\u00d7; disclosures are rounded milestones, so the monthly split is unreliable.';
+  it('parses the note out of the method text and ignores ordinary methods', () => {
+    expect(methodFlag(note)).toBe('Adjacent disclosure segments differ by >3\u00d7; disclosures are rounded milestones, so the monthly split is unreliable.');
+    expect(methodFlag('Derived: cumulative miles at 2024-07-31 minus 2024-06-30 (difference of disclosures).')).toBeNull();
+    expect(methodFlag(undefined)).toBeNull();
+  });
+  it('marks the monthly point whose exposure row carries the note, and a year containing it, but not other months', () => {
+    const mc1 = { crashes: 5, reports: 5, fatal: 0, serious_plus: 0, injury: 0, vru: 0 };
+    const counts: CountsByMonth = { '2024-06': mc1, '2024-07': mc1 };
+    const exp = [row({ period: '2024-06', value: 1e5 }), row({ period: '2024-07', value: 1.4e4, method: note })];
+    const m = series(counts, exp, DEFAULT_SCENARIO, { program: 'waymo_ads', region: 'us', metric: 'perM', grain: 'month', year: 2024, lastMonth: '2026-10' });
+    expect(m.find((p) => p.period === '2024-07')!.flag).toMatch(/unreliable/);
+    expect(m.find((p) => p.period === '2024-06')!.flag).toBeNull();
   });
 });

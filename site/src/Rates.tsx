@@ -11,6 +11,7 @@ import { FunnelPlot, type FunnelPoint } from './components/FunnelPlot';
 import { ScenarioPanel } from './components/ScenarioPanel';
 import { CoverageMatrix } from './components/CoverageMatrix';
 import { TeslaVsrPanel } from './components/TeslaVsrPanel';
+import { FlagNote } from './components/FlagNote';
 import { LowSampleMark, ScenarioBadge, SourceBadge, SourcesCtx } from './components/SourceBadge';
 
 const GROUPS: { id: string; label: string; programs: string[] }[] = [
@@ -311,6 +312,7 @@ function RatesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mode
                 <li><span className="mk mk-fill" /> filled marker: enough crashes, exposure reported or derived</li>
                 <li><span className="mk mk-hollow" /> hollow marker, hatched band: low sample or estimated exposure</li>
                 <li><span className="mk mk-break" /> dashed line: 2025-06-16 NHTSA rule change (not a safety change)</li>
+                <li><span className="flag-icon" aria-hidden="true">⚑</span> flag: that month's exposure was split from very uneven disclosures (&gt;3×), so its rate is unreliable (hover the month for the note)</li>
                 <li><span className="mk mk-area" /> shaded columns: exposure (right axis)</li>
               </ul>
               {grain === 'month' && year > 2025 && (
@@ -369,7 +371,7 @@ function RatesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mode
                   {tableRows.map(({ c, p }) => (
                     <tr key={c.prog + p.period} className={p.rate == null && !p.lowerBound ? 'nodata' : ''}>
                       <td><span className="swatch" style={{ background: c.color }} /> {c.short}</td>
-                      <td>{p.period}</td>
+                      <td>{p.period}{p.flag && <> <FlagNote note={p.flag} period={p.period} /></>}</td>
                       <td className="num">{fmtInt(p.k)}{p.kAdj !== p.k && <span className="small"> ({fmtNum(p.kAdj)} adj.)</span>}</td>
                       <td className="num">{p.exposure != null ? `${fmtNum(p.exposure)} ${p.volumeUnit}` : p.volume != null ? <span className="small">{fmtNum(p.volume)} {p.volumeUnit} (not a denominator)</span> : 'none'}</td>
                       <td>{p.exposureKind ?? ''}</td>

@@ -308,6 +308,13 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
                         {seg.map((p) => (
                           <circle key={p.period} cx={px(p)} cy={yOf(p.rate!)} r={seg.length > 24 ? 2.2 : 3.5} fill={p.lowSample ? t.surface : s.color} stroke={s.color} strokeWidth={1.6} />
                         ))}
+                        {seg.filter((p) => p.flag).map((p) => (
+                          <g key={'flag' + p.period} transform={`translate(${px(p) - 1},${yOf(p.rate!) - 22})`} style={{ color: BRK(mode) }} role="img" aria-label={`${p.period}: unreliable monthly exposure. ${p.flag}`}>
+                            <title>{`${p.period}: ${p.flag}`}</title>
+                            <rect x={-3} y={-2} width={18} height={20} fill="transparent" />
+                            <path d="M0 0h1.4v13H0z M1.4 0.6H10L7.8 3.8L10 7H1.4z" fill="currentColor" />
+                          </g>
+                        ))}
                       </g>
                     );
                   })}
@@ -416,6 +423,7 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
                   {s.label}: {p!.rate == null ? 'no exposure' : fmtNum(p!.rate)}
                   {p!.rate != null && p!.lo != null && p!.hi != null && metric !== 'count' ? ` (${fmtNum(p!.lo)} to ${fmtNum(p!.hi)})` : ''}
                   {p!.rate != null ? `, ${p!.k} crashes` : ''}
+                  {p!.flag ? ` \u2691 exposure for this month is unreliable (${p!.flag})` : ''}
                 </span>
               ))}
             </div>
@@ -426,6 +434,7 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
             ))}
             <li><span className="mk mk-break" /> 2025-06-16 rule change (not a safety change)</li>
             <li>◆ filled: dated to the day · ◇ hollow: month only</li>
+            <li><span className="flag-icon">⚑</span> unreliable month: exposure split from very uneven disclosures (&gt;3×)</li>
             <li>Probe bars: solid = closed, hatched = open</li>
           </ul>
           <p className="small" style={{ padding: '0 6px' }}>

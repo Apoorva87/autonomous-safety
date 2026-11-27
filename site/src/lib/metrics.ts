@@ -70,6 +70,8 @@ export type Point = {
   partial: boolean;
   sourceIds: string[];
   method: string;
+  /** Method note on the exposure behind this point when the pipeline marks its monthly split as unreliable (>3x adjacent segments). */
+  flag: string | null;
   /** What the right-hand "volume" axis shows for this point (may exist even when the rate is null). */
   volume: number | null;
   volumeUnit: 'miles' | 'vehicles';
@@ -118,7 +120,19 @@ type Resolved = {
   method: string;
   scenario: boolean;
   reason?: string;
+  flag?: string | null;
 };
+
+/**
+ * Exposure rows whose method text carries "Note: adjacent disclosure segments differ by >3×; ... the monthly split is unreliable."
+ * (interpolated or differenced miles across very uneven disclosures). Returns the note, or null.
+ */
+export function methodFlag(method: string | null | undefined): string | null {
+  const m = /Note: ([^.]*>\s*3\s*[×x][^.]*\.)/.exec(method ?? '');
+  if (!m) return null;
+  const t = m[1].trim();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
 
 const NONE = (reason: string, months: string[] = []): Resolved => ({
   value: null, kind: null, months, partial: false, sourceIds: [], method: '', scenario: false, reason,
@@ -131,13 +145,13 @@ function resolveRows(rows: ExposureRow[], p: PeriodInfo, agg: 'sum' | 'mean', la
   if (p.grain === 'month') {
     const r = rows.find((x) => x.period === p.period);
     if (!r) return NONE(`No monthly ${label} disclosed for ${p.period}.`);
-    return { value: r.value, kind: r.kind, months: [p.period], partial: false, sourceIds: r.source_ids, method: r.method, scenario: false };
+    return { value: r.value, kind: r.kind, months: [p.period], partial: false, sourceIds: r.source_ids, method: r.method, scenario: false, flag: methodFlag(r.method) };
   }
   const annual = rows.find((x) => x.period === p.period);
   if (annual && (agg === 'mean' || p.complete)) {
     return {
       value: annual.value, kind: annual.kind, months: p.monthsAll, partial: !p.complete,
-      sourceIds: annual.source_ids, method: annual.method, scenario: false,
+      sourceIds: annual.source_ids, method: annual.method, scenario: false, flag: methodFlag(annual.method),
     };
   }
   const monthly = rows.filter((x) => x.period.length === 7 && p.monthsAll.includes(x.period));
@@ -152,6 +166,7 @@ function resolveRows(rows: ExposureRow[], p: PeriodInfo, agg: 'sum' | 'mean', la
     sourceIds: [...new Set(monthly.flatMap((r) => r.source_ids))],
     method: `${agg === 'sum' ? 'Sum' : 'Mean'} of ${monthly.length} monthly rows (${months[0]} to ${months[months.length - 1]}). ${monthly[0].method}`,
     scenario: false,
+    flag: monthly.map((r) => methodFlag(r.method)).find((x) => x) ?? null,
   };
 }
 
@@ -270,7 +285,7 @@ export function series(counts: CountsByMonth, exposure: ExposureRow[], scenario:
       period: p.period, k: denom.value != null ? k : kAll, kAdj: denom.value != null ? kAdj : kAll * wf,
       exposure: null, exposureKind: denom.kind, rate: null, lo: null, hi: null,
       lowSample: true, scenario: false, months, partial: denom.partial,
-      sourceIds: denom.sourceIds, method: denom.method, volume: denom.value, volumeUnit, notes,
+      sourceIds: denom.sourceIds, method: denom.method, flag: denom.flag ?? null, volume: denom.value, volumeUnit, notes,
     };
     const numScenario =
       wf !== 1 || (scenario.countBy !== 'crashes' && measure === 'crashes') || (scenario.lagAdjust && months.some((m) => weight(m) !== wf));

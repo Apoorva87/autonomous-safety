@@ -116,7 +116,7 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
         formatter: (p: any) => {
           if (p.seriesType !== 'scatter') return '';
           const [x, y, period, k, miles, kind, lo, hi, recent, label] = p.value;
-          return `<b>${esc(label)}, ${esc(period)}</b><br>Cumulative miles: ${esc(fmtNum(x))}<br>` +
+          return `<b>${esc(label)}, ${esc(period)}</b><br>Miles since first disclosed month: ${esc(fmtNum(x))}<br>` +
             (yMode === 'rate'
               ? `${esc(fmtNum(y))} crashes per million miles (95% ${esc(fmtNum(lo))} to ${esc(fmtNum(hi))})`
               : `${esc(fmtNum(y))} miles per crash (95% ${esc(fmtNum(lo))} to ${hi == null ? 'no upper bound' : esc(fmtNum(hi))})`) +
@@ -125,7 +125,7 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
         },
       },
       xAxis: {
-        type: 'log', min: xMin, max: xMax, name: 'cumulative miles since the first disclosed month (log scale)', nameLocation: 'middle', nameGap: 30,
+        type: 'log', min: xMin, max: xMax, name: 'miles since first disclosed month (not lifetime miles), log scale', nameLocation: 'middle', nameGap: 30,
         nameTextStyle: { color: t.muted }, axisLabel: { color: t.muted, formatter: (v: number) => fmtNum(v) },
         axisLine: { lineStyle: { color: t.rule } }, splitLine: { lineStyle: { color: t.grid } },
       },
@@ -145,10 +145,10 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
   return (
     <SourcesCtx.Provider value={rates.sources}>
       <section className="learning">
-        <h2>Learning curves: rate against cumulative miles</h2>
+        <h2>Learning curves: rate against miles since first disclosure</h2>
         <p className="prose">
           Does the crash rate fall as a program accumulates miles? Each point is one calendar quarter (or month) with its exact Poisson 95% interval, placed at the
-          cumulative miles reached by the end of that period. <b>A falling curve is not proof of learning</b>: service areas, roads, software, vehicle mix and what gets
+          miles accumulated since the program's first disclosed month, to the end of that period (not lifetime miles). <b>A falling curve is not proof of learning</b>: service areas, roads, software, vehicle mix and what gets
           reported all change together over the same miles. Hatched points are low-count or rest on estimated miles. Reports lag, so the latest points sit low until later reports arrive.
         </p>
         <div className="rates-controls">
@@ -183,7 +183,7 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
           <figure className="panel rates-chart">
             <figcaption>
               <span className="panel-title">
-                {yMode === 'rate' ? 'Crashes per million miles' : 'Miles per crash'} against cumulative miles
+                {yMode === 'rate' ? 'Crashes per million miles' : 'Miles per crash'} against miles since the first disclosed month
                 {isNonDefault(scenario) && <> <ScenarioBadge title="You changed an assumption on the Rates tab (window factor, lag adjustment, count by); it applies here too" /></>}
               </span>
               <span className="panel-total">
@@ -193,7 +193,7 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
             </figcaption>
             <EChart
               option={option} height={420}
-              label={`Learning curves: ${yMode === 'rate' ? 'crash rate' : 'miles per crash'} against cumulative miles for ${curves.map((c) => c.label).join(', ')}`}
+              label={`Learning curves: ${yMode === 'rate' ? 'crash rate' : 'miles per crash'} against miles since the first disclosed month (not lifetime miles) for ${curves.map((c) => c.label).join(', ')}`}
             />
             <ul className="legend rates-legend">
               {curves.map((c) => (
@@ -205,7 +205,7 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
               <li><span className="mk mk-hollow" /> hatched: fewer than 10 crashes or estimated miles</li>
             </ul>
             <p className="small">
-              The horizontal axis counts miles from each program's <b>first month with a monthly disclosure</b>, not its lifetime total (lifetime miles before then are not in the
+              <b>Horizontal axis: miles since first disclosed month (not lifetime miles).</b> It counts miles from each program's first month with a monthly disclosure, not its lifetime total (lifetime miles before then are not in the
               data), so curves start left of where the company's true cumulative miles stand. Compare shapes, not horizontal positions across programs. Both axes are logarithmic, so equal distances are equal ratios; periods with no crashes cannot sit on a log axis and appear only in the table.
             </p>
           </figure>
@@ -226,7 +226,7 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
               <tr>
                 <th scope="col">Program</th>
                 <th scope="col">Period</th>
-                <th scope="col" className="num">Cumulative miles</th>
+                <th scope="col" className="num">Miles since first disclosed month</th>
                 <th scope="col" className="num">Miles in period</th>
                 <th scope="col" className="num">Crashes</th>
                 <th scope="col" className="num">Per million miles</th>

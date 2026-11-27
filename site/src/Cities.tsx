@@ -110,6 +110,11 @@ function CitiesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
           annual disclosures, so every bar here is hatched as an estimate. Rates carry an exact Poisson 95% interval.
         </p>
 
+        <p className="callout small" role="note" style={{ marginTop: 0 }}>
+          <b>All city rates rest on interpolated miles (hatched bars).</b> Waymo discloses city miles in quarterly or annual steps, and the monthly split inside each step is an interpolation, so
+          month-to-month differences within a city are not measured and a rate for a single month can mislead.
+        </p>
+
         <div className="controls">
           {cityPrograms.length > 1 && (
             <label className="field">
