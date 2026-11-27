@@ -4,7 +4,7 @@ import { ci95 } from './poisson';
 import type { CountsByMonth, ExposureRow } from './metrics';
 import { DEFAULT_SCENARIO } from '../state/scenario';
 
-const mc = (n: number) => ({ crashes: n, reports: n, fatal: 0, serious_plus: 0, injury: 0, vru: 0 });
+const mc = (n: number) => ({ crashes: n, robust_crashes: n, reports: n, fatal: 0, serious_plus: 0, injury: 0, vru: 0 });
 const row = (period: string, value: number, kind: ExposureRow['kind'] = 'estimate'): ExposureRow => ({
   program: 'waymo_ads', period, region: 'us', metric: 'miles', value, kind, source_ids: ['s1'], method: 'm',
 });
@@ -67,7 +67,7 @@ describe('learning curve', () => {
     expect(monthlyPoints(counts, [], DEFAULT_SCENARIO, opts)).toEqual([]);
   });
   it('flags recent quarters whose reports are still arriving', () => {
-    const lag = { days: [0, 30, 60, 90], cdf: [0.4, 0.7, 0.95, 1] };
+    const lag = { months: [0, 1, 2, 3], pre: [0.4, 0.7, 0.95, 1], post: [0.4, 0.7, 0.95, 1] };
     const lc = learningCurve(monthly, { group: 'quarter', lastMonth: '2025-07', lag });
     expect(lc[lc.length - 1].recent).toBe(true);
     expect(lc[0].recent).toBe(false);

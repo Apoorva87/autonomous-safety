@@ -9,10 +9,12 @@ import { MILES_ONLY_REASON, regionRateBlock, unmappedReason } from './scope';
 export type Metric = 'per1k' | 'perM' | 'per10kVeh' | 'milesPerCrash' | 'milesPerVehicle' | 'count';
 export type Grain = 'year' | 'month';
 export type Kind = 'reported' | 'derived' | 'estimate';
-export type Measure = 'crashes' | 'fatal' | 'serious_plus' | 'injury' | 'vru';
+export type Measure = 'robust' | 'crashes' | 'fatal' | 'serious_plus' | 'injury' | 'vru';
 
 export type MonthCounts = {
   crashes: number;
+  /** Crashes meeting a criterion reportable under both the pre- and post-2025-06-16 rules (pipeline/derive.py). */
+  robust_crashes: number;
   reports: number;
   fatal: number;
   serious_plus: number;
@@ -32,7 +34,12 @@ export type ExposureRow = {
   method: string;
 };
 
-export type LagCurve = { days: number[]; cdf: number[] } | null | undefined;
+/**
+ * Reporting completeness by whole months since the incident month, per regime (lag.json, chain-ladder, never pooled):
+ * `pre` for incidents before 2025-06 (filed under the old rules), `post` from 2025-06 on. A month's count is only ever
+ * adjusted with the curve of its own regime.
+ */
+export type LagCurve = { months: number[]; pre: number[] | null; post: number[] | null } | null | undefined;
 
 export type SeriesOpts = {
   program: string;
@@ -98,34 +105,31 @@ export const INCOMPLETE_LABEL = 'recent months are incomplete (late reports expe
 export const monthIndex = (m: string) => Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7)) - 1;
 const monthsOfYear = (y: number) => Array.from({ length: 12 }, (_, i) => `${y}-${String(i + 1).padStart(2, '0')}`);
 
-/** Share of reports filed within `days` of the incident month (linear interpolation, clamped). */
-export function cdfAt(lag: LagCurve, days: number): number | null {
-  if (!lag || lag.days.length === 0) return null;
-  const { days: d, cdf } = lag;
-  if (days <= d[0]) return cdf[0];
-  if (days >= d[d.length - 1]) return cdf[cdf.length - 1];
-  for (let i = 1; i < d.length; i++) {
-    if (days <= d[i]) {
-      const t = (days - d[i - 1]) / (d[i] - d[i - 1]);
-      return cdf[i - 1] + t * (cdf[i] - cdf[i - 1]);
-    }
-  }
-  return cdf[cdf.length - 1];
+/** The regime of an incident month: 'pre' before 2025-06, 'post' from 2025-06 (June 2025 is mixed; most of its reports are in the new file). */
+export const regimeOfMonth = (month: string): 'pre' | 'post' => (month < BREAK_DATE.slice(0, 7) ? 'pre' : 'post');
+
+/** Share of a month's reports usually filed within `ageMonths` whole months, from the curve of that month's regime (null without one). */
+export function cdfAt(lag: LagCurve, ageMonths: number, month: string): number | null {
+  if (!lag) return null;
+  const cdf = lag[regimeOfMonth(month)];
+  if (!cdf || cdf.length === 0) return null;
+  const i = Math.max(0, Math.floor(ageMonths));
+  return i >= cdf.length ? cdf[cdf.length - 1] : cdf[i];
 }
 
 /** True when a month's reports are still arriving: its age's share of reports filed is below COMPLETE_SHARE (or it is under 2 months old without a lag curve). */
 export function monthIncomplete(lag: LagCurve, month: string, lastMonth: string): boolean {
   const age = monthIndex(lastMonth) - monthIndex(month);
   if (age < 0) return false;
-  const frac = cdfAt(lag, 30 * age);
+  const frac = cdfAt(lag, age, month);
   return frac != null ? frac < COMPLETE_SHARE : age < 2;
 }
 
-/** Multiplier applied to a month's count because late reports have not arrived yet. */
+/** Multiplier applied to a month's count because late reports have not arrived yet (the month's own regime curve, whole months). */
 export function lagFactor(lag: LagCurve, month: string, lastMonth: string, multiplier: number): number {
   const age = monthIndex(lastMonth) - monthIndex(month);
   if (age < 0) return 1;
-  const frac = cdfAt(lag, 30 * age);
+  const frac = cdfAt(lag, age, month);
   if (frac == null) return 1;
   return 1 + (1 / Math.max(frac, 0.05) - 1) * multiplier;
 }
@@ -241,7 +245,8 @@ export function series(counts: CountsByMonth | null, exposure: ExposureRow[], sc
   const wf = scenario.windowFactor;
   const weight = (m: string) =>
     wf * (scenario.lagAdjust ? lagFactor(opts.lag, m, lastMonth, scenario.lagMultiplier) : 1);
-  const pick = (c: MonthCounts) => (measure === 'crashes' ? (scenario.countBy === 'reports' ? c.reports : c.crashes) : c[measure]);
+  const pick = (c: MonthCounts) =>
+    measure === 'crashes' ? (scenario.countBy === 'reports' ? c.reports : c.crashes) : measure === 'robust' ? c.robust_crashes ?? 0 : c[measure];
 
   const vehicles = (p: PeriodInfo): Resolved => {
     if (useSubs) {

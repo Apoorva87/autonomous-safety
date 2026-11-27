@@ -40,6 +40,19 @@ export type Crash = {
   narrative_redacted: boolean;
   version_redacted: boolean;
   tags: string[]; // "name:f" (structured field) or "name:n" (narrative keyword)
+  sv_contact_areas?: string[] | null;
+  cp_contact_areas?: string[] | null;
+  /** Meets a criterion reportable under both the pre- and post-2025-06-16 rules for its kind group (meta.robust_definition). */
+  robust: boolean;
+  /** Local hour 0-23 (Tesla, Inc. filings converted from UTC, see time_basis), null when not given. */
+  hour: number | null;
+  /** "filed": the time as filed is local; "utc": Tesla files UTC and the hour was converted to the state's local time. */
+  time_basis: 'filed' | 'utc';
+  /** Recorded Lighting where the report has one (archive era), else derived from time; "unknown" when neither. */
+  light_condition: 'day' | 'twilight' | 'night' | 'unknown';
+  light_condition_basis: 'recorded' | 'derived from time' | null;
+  /** Always derived from time and month (approximate), so it is comparable across the 2025-06-16 change. */
+  light_from_time: 'day' | 'twilight' | 'night' | 'unknown';
 };
 
 export type Counts = {
@@ -90,6 +103,20 @@ export type Meta = {
   disclosures: {
     company: string; program: string; metric: string; last_date: string; age_days: number; expected_every_days: number; stale: boolean;
   }[];
+  not_engaged?: {
+    total: number; by_program: Record<string, number>; by_program_month: Record<string, number>; report_ids: string[];
+    alleged_engaged_by_program: Record<string, number>; note: string;
+  };
+  robust_definition?: { name: string; short: string; ads: string; l2: string; why: string; uncertainty: string[] };
+  light_rule?: string;
+  time_rule?: string;
+  sun_table?: Record<string, { sunrise: string; sunset: string }>;
+  light_check?: Record<string, LightTable | string>;
+  field_notes?: Record<string, string>;
+};
+
+export type LightTable = {
+  recorded_by_derived: Record<string, Record<string, number>>; n: number; agree: number; opposite: number; day_night_agreement: number | null;
 };
 
 export type Data = { crashes: Crash[]; counts: Counts; transparency: Transparency; meta: Meta };

@@ -43,7 +43,7 @@ describe('city name mapping', () => {
     const crashes = rec.rows.map((row) => Object.fromEntries(rec.fields.map((f, i) => [f, row[i]]))) as unknown as Crash[];
     const ranked = rankCities(crashes, 'waymo_ads');
     const un = unmatchedCities(ranked);
-    expect(un.find((u) => u.city === 'Miami')?.n).toBe(33);
+    expect(un.find((u) => u.city === 'Miami')?.n).toBe(31); // 33 filed, 2 verified not engaged
     expect(un.find((u) => u.city === 'Houston')?.state).toBe('TX');
     expect(un.some((u) => u.city === 'Phoenix' && u.state === 'CA')).toBe(true); // a mis-keyed state is not silently merged
     const matched = ranked.filter((r) => r.regions.length > 0).reduce((a, r) => a + r.n, 0);

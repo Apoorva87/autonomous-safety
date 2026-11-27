@@ -25,7 +25,7 @@ describe('rider-only numerator', () => {
     crash({ operator: 'none' }), crash({ operator: 'remote' }), crash({ operator: 'in_vehicle' }),
     crash({ operator: 'in_vehicle_and_remote' }), crash({ operator: 'other' }),
   ];
-  const rows: CountRow[] = [{ program: 'waymo_ads', company: 'waymo', month: '2025-03', file: 'ADS', crashes: 5, reports: 5, fatal: 0, serious_plus: 0, injury: 0, vru: 0 }];
+  const rows: CountRow[] = [{ program: 'waymo_ads', company: 'waymo', month: '2025-03', file: 'ADS', crashes: 5, robust_crashes: 2, reports: 5, fatal: 0, serious_plus: 0, injury: 0, vru: 0 }];
   it('is on by default for rider-only programs: only none/remote crashes are counted', () => {
     expect(scopedCounts(rows, crashes, 'waymo_ads', 'us')!['2025-03'].crashes).toBe(2);
     expect(scopedCounts(rows, crashes, 'waymo_ads', 'us', { riderOnly: true })!['2025-03'].crashes).toBe(2);
@@ -96,8 +96,9 @@ describe('records.json agrees with counts.json (real data)', () => {
       const fromRecords: Record<string, Record<string, number>> = {};
       for (const c of crashes) {
         if (c.program !== program || !c.month) continue;
-        const m = (fromRecords[c.month] ??= { crashes: 0, fatal: 0, serious_plus: 0, injury: 0, vru: 0 });
+        const m = (fromRecords[c.month] ??= { crashes: 0, robust_crashes: 0, fatal: 0, serious_plus: 0, injury: 0, vru: 0 });
         m.crashes++;
+        m.robust_crashes += c.robust ? 1 : 0;
         m.fatal += c.severity === 'fatal' ? 1 : 0;
         m.serious_plus += c.severity === 'serious' || c.severity === 'fatal' ? 1 : 0;
         m.injury += ['minor', 'moderate', 'serious', 'fatal'].includes(c.severity) ? 1 : 0;
@@ -105,7 +106,7 @@ describe('records.json agrees with counts.json (real data)', () => {
       }
       for (const [month, want] of Object.entries(fromRows)) {
         if (month === 'null') continue; // undated reports have no month to compare
-        for (const k of ['crashes', 'fatal', 'serious_plus', 'injury', 'vru'] as const) {
+        for (const k of ['crashes', 'robust_crashes', 'fatal', 'serious_plus', 'injury', 'vru'] as const) {
           expect(fromRecords[month]?.[k] ?? 0, `${program} ${month} ${k}`).toBe(want[k]);
         }
       }

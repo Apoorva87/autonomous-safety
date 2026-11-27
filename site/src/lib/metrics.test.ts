@@ -3,7 +3,7 @@ import { ci95 } from './poisson';
 import { series, lagFactor, methodFlag, monthIncomplete, type CountsByMonth, type ExposureRow } from './metrics';
 import { DEFAULT_SCENARIO, type Scenario } from '../state/scenario';
 
-const mc = (n: number) => ({ crashes: n, reports: n + 1, fatal: 0, serious_plus: 0, injury: 0, vru: 0 });
+const mc = (n: number) => ({ crashes: n, robust_crashes: Math.floor(n / 2), reports: n + 1, fatal: 0, serious_plus: 0, injury: 0, vru: 0 });
 const months = (y: number, n: number) => Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`${y}-${String(i + 1).padStart(2, '0')}`, mc(n)]));
 const row = (p: Partial<ExposureRow>): ExposureRow => ({
   program: 'waymo_ads', period: '2024', region: 'us', metric: 'miles', value: 1_000_000, kind: 'derived', source_ids: ['s1'], method: 'm', ...p,
@@ -60,7 +60,7 @@ describe('series', () => {
     expect(find(series(counts, [row({})], DEFAULT_SCENARIO, { ...base, metric: 'perM' }), '2024').scenario).toBe(false);
   });
   it('lag adjustment divides recent-month counts by the lag CDF at their age', () => {
-    const lag = { days: [0, 30, 60, 90], cdf: [0.5, 0.8, 1, 1] };
+    const lag = { months: [0, 1, 2, 3], pre: null, post: [0.5, 0.8, 1, 1] };
     expect(lagFactor(lag, '2026-10', '2026-10', 1)).toBeCloseTo(2, 9);
     expect(lagFactor(lag, '2026-09', '2026-10', 1)).toBeCloseTo(1 / 0.8, 9);
     expect(lagFactor(lag, '2026-07', '2026-10', 1)).toBeCloseTo(1, 9);
@@ -180,13 +180,26 @@ describe('regions that can never give a rate', () => {
 });
 
 describe('incomplete recent months', () => {
-  const lag = { days: [0, 30, 60, 90], cdf: [0.5, 0.8, 0.95, 1] };
+  const lag = { months: [0, 1, 2, 3], pre: null, post: [0.5, 0.8, 0.95, 1] };
   it('a month is incomplete while its lag CDF is below 90%', () => {
     expect(monthIncomplete(lag, '2026-10', '2026-10')).toBe(true); // 0.5
     expect(monthIncomplete(lag, '2026-09', '2026-10')).toBe(true); // 0.8
     expect(monthIncomplete(lag, '2026-08', '2026-10')).toBe(false); // 0.95
     expect(monthIncomplete(null, '2026-10', '2026-10')).toBe(true); // no curve: the last two months
     expect(monthIncomplete(null, '2026-07', '2026-10')).toBe(false);
+  });
+  it('each month uses the curve of its own regime, in whole months', () => {
+    const both = { months: [0, 1, 2], pre: [0.2, 0.6, 1], post: [0.7, 0.95, 1] };
+    expect(lagFactor(both, '2025-05', '2025-06', 1)).toBeCloseTo(1 / 0.6, 9); // pre curve, age 1
+    expect(lagFactor(both, '2025-07', '2025-08', 1)).toBeCloseTo(1 / 0.95, 9); // post curve, age 1
+    expect(monthIncomplete(both, '2025-07', '2025-08')).toBe(false);
+    expect(monthIncomplete(both, '2025-05', '2025-06')).toBe(true);
+  });
+  it('the robust measure counts robust crashes', () => {
+    const c: CountsByMonth = { '2026-09': mc(8) };
+    const exp = [row({ period: '2026-09', value: 1e6 })];
+    const pts = series(c, exp, DEFAULT_SCENARIO, { ...base, grain: 'month', year: 2026, metric: 'count', measure: 'robust' });
+    expect(find(pts, '2026-09').k).toBe(4);
   });
   it('points list their incomplete months; the headline numbers are unchanged unless lag adjustment is on', () => {
     const c: CountsByMonth = { '2026-08': mc(10), '2026-09': mc(10), '2026-10': mc(10) };
@@ -212,7 +225,7 @@ describe('exposure method flag (>3x adjacent segments)', () => {
     expect(methodFlag(undefined)).toBeNull();
   });
   it('marks the monthly point whose exposure row carries the note, and a year containing it, but not other months', () => {
-    const mc1 = { crashes: 5, reports: 5, fatal: 0, serious_plus: 0, injury: 0, vru: 0 };
+    const mc1 = { crashes: 5, robust_crashes: 2, reports: 5, fatal: 0, serious_plus: 0, injury: 0, vru: 0 };
     const counts: CountsByMonth = { '2024-06': mc1, '2024-07': mc1 };
     const exp = [row({ period: '2024-06', value: 1e5 }), row({ period: '2024-07', value: 1.4e4, method: note })];
     const m = series(counts, exp, DEFAULT_SCENARIO, { program: 'waymo_ads', region: 'us', metric: 'perM', grain: 'month', year: 2024, lastMonth: '2026-10' });

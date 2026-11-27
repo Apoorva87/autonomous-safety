@@ -26,7 +26,24 @@ export type InvestigationRow = {
   status: string; url: string; vehicles_covered: number | null; source_ids: string[];
 };
 
+/** lag.json: whole-month completeness per program and regime, plus late-report histograms by severity. */
+export type LagFile = {
+  months: number[];
+  pooled: boolean;
+  note: string;
+  regimes: Record<string, string>;
+  last_submission_month: Record<string, string>;
+  programs: Record<string, {
+    n: number;
+    n_reports: number;
+    regimes: Partial<Record<'pre' | 'post', { n: number; cdf: number[]; raw_cdf: number[]; beyond_horizon: number }>>;
+    /** Report counts by lag month 0..12 and a last bin for later, per regime and severity. */
+    hist: Partial<Record<'pre' | 'post', Record<string, number[]>>>;
+  }>;
+};
+
 export type RatesData = {
+  lagFile: LagFile;
   investigations: InvestigationRow[];
   exposure: ExposureRow[];
   countRows: CountRow[];
@@ -50,7 +67,7 @@ export function loadRatesData(): Promise<RatesData> {
   cache ??= Promise.all([
     getJson<{ rows: ExposureRow[] }>('exposure.json'),
     getJson<{ rows: CountRow[] }>('counts.json'),
-    getJson<{ days: number[]; programs: Record<string, { cdf: number[] }> }>('lag.json'),
+    getJson<LagFile>('lag.json'),
     getJson<{ rows: EventRow[] }>('events.json'),
     getJson<{ rows: SourceRow[] }>('sources.json'),
     getJson<{ rows: CompanyRow[] }>('company_reported.json'),
@@ -60,7 +77,10 @@ export function loadRatesData(): Promise<RatesData> {
     investigations: inv.rows,
     exposure: e.rows,
     countRows: c.rows,
-    lag: Object.fromEntries(Object.entries(l.programs).map(([k, v]) => [k, { days: l.days, cdf: v.cdf }])),
+    lag: Object.fromEntries(
+      Object.entries(l.programs).map(([k, v]) => [k, { months: l.months, pre: v.regimes.pre?.cdf ?? null, post: v.regimes.post?.cdf ?? null }]),
+    ),
+    lagFile: l,
     events: ev.rows,
     sources: Object.fromEntries(s.rows.map((r) => [r.source_id, r])),
     company: co.rows,
@@ -108,7 +128,7 @@ export function regionLabel(region: string): string {
   return named[region] ?? region.replace('city:', '').replace(/_/g, ' ');
 }
 
-const EMPTY = (): MonthCounts => ({ crashes: 0, reports: 0, fatal: 0, serious_plus: 0, injury: 0, vru: 0 });
+const EMPTY = (): MonthCounts => ({ crashes: 0, robust_crashes: 0, reports: 0, fatal: 0, serious_plus: 0, injury: 0, vru: 0 });
 
 export type CountOpts = {
   /** Count only crashes with no in-vehicle operator for programs whose miles are rider-only (default true). */
@@ -146,7 +166,8 @@ export function scopedCounts(
   if (!scope) return null;
   if (!isEntity && 'all' in scope && !riderOnly) {
     for (const r of countRows) {
-      if (r.program === program) add(r.month, r);
+      if (r.program === program)
+        add(r.month, { crashes: r.crashes, robust_crashes: r.robust_crashes ?? 0, reports: r.reports, fatal: r.fatal, serious_plus: r.serious_plus, injury: r.injury, vru: r.vru });
     }
     return out;
   }
@@ -165,6 +186,7 @@ export function scopedCounts(
     const sev = c.severity;
     add(c.month, {
       crashes: 1,
+      robust_crashes: c.robust ? 1 : 0,
       reports: c.n_reports,
       fatal: sev === 'fatal' ? 1 : 0,
       serious_plus: sev === 'serious' || sev === 'fatal' ? 1 : 0,
