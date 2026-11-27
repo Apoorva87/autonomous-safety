@@ -3,26 +3,25 @@ import { fmt, humanize } from './data';
 import { PROGRAM_BY_KEY, SEVERITY_LABEL, LABEL_COLOR, colorOf, type Mode } from './theme';
 import {
   CONFIDENCE_NAME, LABEL_KEY_NAME, applyFilters, evidenceFor, labelName, toCsv,
-  type JoinedRow, type RespFilters,
+  type RespRow, type RespFilters,
 } from './lib/responsibility';
-import { ZONE_LABEL, zonesOf } from './lib/impact';
+import { ZONE_LABEL, type Zone } from './lib/impact';
 import { setQuery, useQuery } from './state/scenario';
 import { useNarrative, type RespData } from './state/responsibilityData';
 
 const PAGE = 50;
 
-const monthDesc = (a: JoinedRow, b: JoinedRow) => (b.month ?? '').localeCompare(a.month ?? '') || a.report_id.localeCompare(b.report_id);
+const monthDesc = (a: RespRow, b: RespRow) => (b.month ?? '').localeCompare(a.month ?? '') || a.report_id.localeCompare(b.report_id);
 
 const hv = (v: string | null) => humanize(v).replace(/\bSuv\b/, 'SUV');
 
-function keyFields(r: JoinedRow): string {
-  const c = r.rec;
-  if (!c) return 'Structured fields not published for this report';
-  const hit = zonesOf(c, 'sv').map((z) => ZONE_LABEL[z]).join(', ');
-  return [`Hit: ${hv(c.crash_with)}`, `Subject: ${hv(c.sv_movement)}`, `Struck at: ${hit || 'not reported'}`].join(' · ');
+const zonesText = (areas: string[]) => areas.filter((z) => z !== 'unknown').map((z) => ZONE_LABEL[z as Zone] ?? z).join(', ');
+
+function keyFields(r: RespRow): string {
+  return [`Hit: ${hv(r.crash_with)}`, `Subject: ${hv(r.sv_movement)}`, `Struck at: ${zonesText(r.sv_contact_areas) || 'not reported'}`].join(' · ');
 }
 
-export function LabelCell({ r, mode }: { r: Pick<JoinedRow, 'label' | 'program'>; mode: Mode }) {
+export function LabelCell({ r, mode }: { r: Pick<RespRow, 'label' | 'program'>; mode: Mode }) {
   return (
     <span className="label-cell">
       <i className="swatch" style={{ background: colorOf(LABEL_COLOR[r.label], mode) }} aria-hidden="true" /> {labelName(r.label, r.program)}
@@ -30,7 +29,7 @@ export function LabelCell({ r, mode }: { r: Pick<JoinedRow, 'label' | 'program'>
   );
 }
 
-export function CrashList({ all, resp, f, mode }: { all: JoinedRow[]; resp: RespData; f: RespFilters; mode: Mode }) {
+export function CrashList({ all, resp, f, mode }: { all: RespRow[]; resp: RespData; f: RespFilters; mode: Mode }) {
   const params = useQuery();
   const key = [f.programs.join(), f.severities.join(), f.from, f.to, f.label, f.rule, f.flow].join('|');
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -126,13 +125,12 @@ function fmtValue(v: unknown): string {
   return String(v);
 }
 
-function Drawer({ row, resp, mode, onClose }: { row: JoinedRow; resp: RespData; mode: Mode; onClose: () => void }) {
+function Drawer({ row, resp, mode, onClose }: { row: RespRow; resp: RespData; mode: Mode; onClose: () => void }) {
   const close = useRef<HTMLButtonElement>(null);
   const narr = useNarrative(row.report_id);
   const rule = resp.rules.rules.find((r) => r.id === row.rule);
   const hint = row.agent_hint ? resp.rules.agent_hints[row.agent_hint] : null;
   const evidence = evidenceFor(row);
-  const rec = row.rec as unknown as Record<string, unknown> | null;
 
   useEffect(() => {
     close.current?.focus();
@@ -155,7 +153,7 @@ function Drawer({ row, resp, mode, onClose }: { row: JoinedRow; resp: RespData; 
         <div><dt>Confidence</dt><dd>{CONFIDENCE_NAME[row.confidence]}</dd></div>
         <div><dt>Basis</dt><dd>{row.basis === 'field' ? 'Structured report fields' : 'A readable narrative'}</dd></div>
         <div><dt>Rule</dt><dd className="mono">{row.rule}</dd></div>
-        <div><dt>Injury severity</dt><dd>{SEVERITY_LABEL[row.severity] ?? row.severity} <span className="small">(highest in the incident)</span></dd></div>
+        <div><dt>Injury severity</dt><dd>{SEVERITY_LABEL[row.severity] ?? row.severity} <span className="small">(this report)</span></dd></div>
       </dl>
 
       <h4>Why this label</h4>
@@ -168,17 +166,18 @@ function Drawer({ row, resp, mode, onClose }: { row: JoinedRow; resp: RespData; 
           {evidence.map((e) => <li key={e.field}><code>{e.field}={e.value}</code></li>)}
         </ul>
       ) : (
-        <p className="small">The structured fields for this report are not published: it is not its incident&rsquo;s primary report in records.json. The label was still computed from them.</p>
+        <p className="small">No evidence fields recorded for this label.</p>
       )}
 
-      <h4>Full structured record</h4>
-      {rec ? (
-        <dl className="record">
-          {Object.entries(rec).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{fmtValue(v)}</dd></div>)}
-        </dl>
-      ) : (
-        <p className="small">Not published for this report (see above). Severity is the incident&rsquo;s.</p>
-      )}
+      <h4>Structured record of this report</h4>
+      <dl className="record">
+        {[
+          ['severity', row.severity], ['sv_movement', row.sv_movement], ['cp_movement', row.cp_movement], ['crash_with', row.crash_with],
+          ['sv_contact_areas', row.sv_contact_areas], ['speed_band', row.speed_band], ['automation_engaged', row.automation_engaged],
+          ['incident_key', row.incident_key], ['report_key', row.report_key],
+        ].map(([k, v]) => <div key={k as string}><dt>{k as string}</dt><dd>{fmtValue(v)}</dd></div>)}
+      </dl>
+      <p className="small">These are the fields of this report itself. The Crash explorer shows the fuller record of each incident&rsquo;s primary report.</p>
 
       <h4>Narrative</h4>
       {narr.status === 'loading' && <p className="small" role="status">Loading narratives (about 4 MB, once)&hellip;</p>}

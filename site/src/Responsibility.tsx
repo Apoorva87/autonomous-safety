@@ -9,8 +9,8 @@ import { esc } from './lib/format';
 import { textOn } from './lib/ramp';
 import {
   BANNER, CANNOT_NAME, COLUMNS, COLUMN_TITLE, CONFIDENCE_NAME, LABELS, NODE_NAME, OTHER_NAME, OWN_ADS, OWN_L2,
-  aggregateByProgram, applyControls, buildSankey, isL2, joinRows, labelName, multiProgramIncidents, periodRange, periodShare, timeSeries,
-  type Confidence, type Grain, type JoinedRow, type Label, type ProgramAgg, type RespFilters, type SankeyGraph,
+  aggregateByProgram, applyControls, buildSankey, isL2, labelName, multiProgramIncidents, periodRange, periodShare, timeSeries,
+  type Confidence, type Grain, type RespRow, type Label, type ProgramAgg, type RespFilters, type SankeyGraph,
 } from './lib/responsibility';
 import { BREAK_DATE } from './lib/metrics';
 import { setQuery, useQuery } from './state/scenario';
@@ -30,7 +30,7 @@ export function Responsibility({ data, mode }: { data: Data; mode: Mode }) {
 
 function Loaded({ data, resp, mode }: { data: Data; resp: RespData; mode: Mode }) {
   const params = useQuery();
-  const all = useMemo(() => joinRows(resp.rows, data.crashes), [resp.rows, data.crashes]);
+  const all = resp.rows;
   const months = useMemo(() => [...new Set(all.map((r) => r.month).filter((m): m is string => !!m))].sort(), [all]);
 
   const f: RespFilters = {
@@ -89,7 +89,7 @@ function Loaded({ data, resp, mode }: { data: Data; resp: RespData; mode: Mode }
           onClear={() => setControl({ rp: null })}
         />
         <ChipGroup
-          legend="Injury severity (of the crash)"
+          legend="Injury severity (of the report)"
           options={SEVERITY_ORDER.map((s) => ({ value: s, label: SEVERITY_LABEL[s] }))}
           selected={f.severities}
           onToggle={(v) => setControl({ rsv: toggleIn(f.severities, v).join(',') || null })}
@@ -125,7 +125,7 @@ function Loaded({ data, resp, mode }: { data: Data; resp: RespData; mode: Mode }
       </p>
 
       <h3>Share of each program&rsquo;s reports by inferred label</h3>
-      <LabelBars agg={agg} share={share} mode={mode} rows={rows} onPick={pickSegment} />
+      <LabelBars agg={agg} share={share} mode={mode} rows={rows} readable={resp.audit.comparison.tesla_l2?.readable_narratives ?? 0} onPick={pickSegment} />
 
       <ComparisonStrip rows={rows} resp={resp} />
 
@@ -141,7 +141,7 @@ function Loaded({ data, resp, mode }: { data: Data; resp: RespData; mode: Mode }
 
       <SourceNote
         date={data.meta.fetched_date}
-        extra={`Labels: ${resp.labelSet}, rules v${resp.rulesVersion}, one per current NHTSA SGO report. Structured fields come from records.json (each incident's primary report); narratives are read only when you open a report.`}
+        extra={`Labels: ${resp.labelSet}, rules v${resp.rulesVersion}, one per current NHTSA SGO report, each with its own report's fields (from responsibility.json); narratives are read only when you open a report.`}
       />
     </section>
   );
@@ -177,12 +177,11 @@ function segStyleFor(label: Label, conf: Confidence, mode: Mode): React.CSSPrope
   return segStyle(label, conf, mode);
 }
 
-function LabelBars({ agg, share, mode, rows, onPick }: { agg: ProgramAgg[]; share: boolean; mode: Mode; rows: JoinedRow[]; onPick: (program: string, label: Label) => void }) {
+function LabelBars({ agg, share, mode, rows, readable, onPick }: { agg: ProgramAgg[]; share: boolean; mode: Mode; rows: RespRow[]; readable: number; onPick: (program: string, label: Label) => void }) {
   const maxTotal = Math.max(1, ...agg.map((a) => a.total));
   const tesla = agg.find((a) => a.program === 'tesla_l2');
   const teslaRows = useMemo(() => (tesla ? rows.filter((r) => r.program === 'tesla_l2') : []), [rows, tesla]);
   const teslaInd1 = teslaRows.filter((r) => r.rule === 'RESP-IND-1').length;
-  const teslaReadable = teslaRows.filter((r) => r.rec && !r.rec.narrative_redacted).length;
   const teslaInd = tesla?.labelTotal.indeterminate ?? 0;
 
   if (agg.length === 0) return <p className="callout small">No reports match these controls.</p>;
@@ -246,7 +245,7 @@ function LabelBars({ agg, share, mode, rows, onPick }: { agg: ProgramAgg[]; shar
         <div className="callout why-no-data" role="note">
           <b>Tesla Level 2: {pctText(tesla.share.indeterminate, 0)} cannot tell.</b> This is a limit of the report fields, not a finding.
           {' '}{fmt(teslaInd1)} of {fmt(teslaInd)} Tesla Level 2 reports in view (rule RESP-IND-1) have an unknown or missing pre-crash movement or contact area, so no rule can apply, and
-          only {fmt(teslaReadable)} of {fmt(tesla.total)} have a readable narrative (the rest are redacted), so the narrative audit says almost nothing about them.
+          only {fmt(readable)} Tesla Level 2 narratives in the whole data set are readable (the rest are redacted), so the narrative audit says almost nothing about them.
           Compare Tesla Level 2 with other programs only with this in mind.
         </div>
       )}
@@ -353,7 +352,7 @@ function Flow({ graph, selected, mode, onPick }: { graph: SankeyGraph; selected:
         <span className="panel-total">Each report is one path left to right. Width is the number of reports. Click a block or a flow to list its reports below.</span>
       </figcaption>
       {graph.drawn === 0 ? (
-        <p className="callout small">No reports with structured fields in this view.</p>
+        <p className="callout small">No reports in this view.</p>
       ) : (
         <>
         <p className="small scroll-hint">Swipe sideways to see all five columns.</p>
@@ -366,7 +365,7 @@ function Flow({ graph, selected, mode, onPick }: { graph: SankeyGraph; selected:
       )}
       {selected && <p className="small">Flow selected: <b>{selText}</b> (listed below; click it again to clear).</p>}
       <p className="small">
-        {fmt(graph.drawn)} reports drawn; {fmt(graph.skipped)} left out because they are not their incident&rsquo;s primary report, so their structured fields are not published in records.json.
+        All {fmt(graph.drawn)} reports in view are drawn, each from its own report&rsquo;s fields.
         Own motion is split by program kind so its wording stays exact. Movement, partner and impact point are grouped; &ldquo;Unknown&rdquo; blocks are what the filing says (or leaves blank), not data lost in this chart.
       </p>
       <details className="table-view">
@@ -396,7 +395,7 @@ function Flow({ graph, selected, mode, onPick }: { graph: SankeyGraph; selected:
 
 const MIN_SHARE_N = 10;
 
-function TimePanels({ rows, share, grain, mode }: { rows: JoinedRow[]; share: boolean; grain: Grain; mode: Mode }) {
+function TimePanels({ rows, share, grain, mode }: { rows: RespRow[]; share: boolean; grain: Grain; mode: Mode }) {
   const programs = useMemo(() => PROGRAMS.map((p) => p.key).filter((k) => rows.some((r) => r.program === k)), [rows]);
   const periods = useMemo(() => periodRange(rows.map((r) => r.month ?? ''), grain), [rows, grain]);
   const series = useMemo(() => programs.map((p) => ({ p, ts: timeSeries(rows.filter((r) => r.program === p), periods, grain) })), [rows, programs, periods, grain]);

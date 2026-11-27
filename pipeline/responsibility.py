@@ -458,7 +458,21 @@ def parse_labels(payload):
 # --------------------------------------------------------------- site exports
 OUTPUT_FILES = ("responsibility.json", "responsibility_rules.json", "responsibility_audit.json")
 FIELDS = ["report_id", "report_key", "incident_key", "program", "month", "label", "confidence", "basis", "rule",
-          "agent_hint"]
+          "agent_hint",
+          # Display fields of the report itself (not of the incident's primary report), so every row can be drawn alone.
+          "severity", "sv_movement", "cp_movement", "crash_with", "sv_contact_areas", "speed_band",
+          "automation_engaged", "evidence"]
+
+
+def _evidence_pairs(evidence):
+    """The label's evidence fields as sorted 'field=value' strings (lists joined by ';'); no narrative text."""
+    pairs = []
+    for field in sorted(evidence or {}):
+        value = evidence[field]
+        if isinstance(value, (list, tuple, set)):
+            value = ";".join(str(v) for v in sorted(value))
+        pairs.append("%s=%s" % (field, "" if value is None else value))
+    return pairs
 LABEL_MEANINGS = {
     OTHER_PARTY: "The structured fields point to another party's action (for example struck from behind).",
     SV_INITIATED: "The structured fields point to the subject vehicle's own motion starting the contact.",
@@ -478,18 +492,29 @@ def _current_labels(reports, labels):
 
 
 def build_responsibility(pairs, run_id):
-    rows = [
-        [r["report_id"], r["report_key"], r["incident_key"], r["program"], r["month"], l["label"], l["confidence"],
-         l["basis"], l["rule"], l["agent_hint"]]
-        for r, l in pairs
-    ]
+    # Evidence is dictionary-encoded: each row's "evidence" is an index into "evidence_sets" (about 2,000 distinct
+    # sets for 9,000 rows), listed in order of first use so the file is deterministic.
+    evidence_sets, index = [], {}
+    rows = []
+    for r, l in pairs:
+        pairs_ = _evidence_pairs(l.get("evidence_fields"))
+        key = tuple(pairs_)
+        if key not in index:
+            index[key] = len(evidence_sets)
+            evidence_sets.append(pairs_)
+        rows.append([
+            r["report_id"], r["report_key"], r["incident_key"], r["program"], r["month"], l["label"], l["confidence"],
+            l["basis"], l["rule"], l["agent_hint"],
+            r.get("severity"), r.get("sv_movement"), r.get("cp_movement"), r.get("crash_with"),
+            list(r.get("sv_contact_areas") or []), r.get("speed_band"), r.get("automation_engaged"), index[key],
+        ])
     counts = {}
     for r, l in pairs:
         slot = counts.setdefault(r["program"], {}).setdefault(l["label"], {})
         slot[l["confidence"]] = slot.get(l["confidence"], 0) + 1
     return {
         "label_set": LABEL_SET, "rules_version": RULES_VERSION, "generated_for_run": run_id, "disclaimer": DISCLAIMER,
-        "fields": list(FIELDS), "rows": rows, "summary": {"counts": counts},
+        "fields": list(FIELDS), "evidence_sets": evidence_sets, "rows": rows, "summary": {"counts": counts},
     }
 
 

@@ -13,7 +13,7 @@ def report(**kw):
         "month": "2025-01", "is_latest": True, "is_placeholder": False, "removed_in_run": None,
         "sv_contact_areas": ["front"], "cp_contact_areas": ["rear"], "sv_movement": "proceeding_straight",
         "cp_movement": "proceeding_straight", "crash_with": "passenger_car", "speed_mph": 20,
-        "roadway_type": "street", "automation_engaged": "ads", "engagement_status": None,
+        "roadway_type": "street", "automation_engaged": "ads", "severity": "minor", "speed_band": "16-30", "engagement_status": None,
         "narrative_redacted": False, "raw": {"Narrative": "text"},
     }
     base.update(kw)
@@ -406,11 +406,41 @@ class OutputTests(unittest.TestCase):
         self.assertIn("not a finding of fault", data["disclaimer"])
         self.assertEqual(data["fields"], [
             "report_id", "report_key", "incident_key", "program", "month", "label", "confidence", "basis", "rule",
-            "agent_hint"])
+            "agent_hint", "severity", "sv_movement", "cp_movement", "crash_with", "sv_contact_areas", "speed_band",
+            "automation_engaged", "evidence"])
         self.assertEqual([r[1] for r in data["rows"]], ["A|v1", "B|v1", "C|v1", "D|v1"])
-        self.assertEqual(data["rows"][0], ["A", "A|v1", "I1", "waymo_ads", "2025-02", "other_party", "high", "field",
-                                           "RESP-OTH-1", None])
-        self.assertEqual(data["rows"][1][-1], "driver_or_system")
+        self.assertEqual(data["rows"][0][:10], ["A", "A|v1", "I1", "waymo_ads", "2025-02", "other_party", "high", "field",
+                                                "RESP-OTH-1", None])
+        self.assertEqual(data["rows"][1][9], "driver_or_system")
+
+    def test_every_row_carries_the_display_fields_of_its_own_report(self):
+        data = self.out["responsibility.json"]
+        rows = {r[0]: dict(zip(data["fields"], r)) for r in data["rows"]}
+        # B and A share incident I1 but each row describes its own report
+        self.assertEqual(rows["A"]["sv_movement"], "stopped")
+        self.assertEqual(rows["B"]["sv_movement"], "lane_departure")
+        self.assertEqual(rows["A"]["severity"], "minor")
+        self.assertEqual(rows["A"]["crash_with"], "passenger_car")
+        self.assertEqual(rows["A"]["cp_movement"], "proceeding_straight")
+        self.assertEqual(rows["A"]["sv_contact_areas"], ["front"])
+        self.assertEqual(rows["A"]["speed_band"], "16-30")
+        self.assertEqual(rows["B"]["automation_engaged"], "l2")
+        self.assertEqual(rows["C"]["sv_contact_areas"], [])
+        self.assertIsNone(rows["C"]["sv_movement"])
+
+    def test_evidence_is_sorted_field_value_pairs_without_narrative_text(self):
+        data = self.out["responsibility.json"]
+        rows = {r[0]: dict(zip(data["fields"], r)) for r in data["rows"]}
+        sets = data["evidence_sets"]
+        self.assertEqual(sets[rows["A"]["evidence"]], ["crash_with=passenger_car", "sv_contact_areas=front", "sv_movement=stopped"])
+        self.assertEqual(sets[rows["B"]["evidence"]], ["sv_movement=lane_departure"])
+        self.assertEqual(len({tuple(s) for s in sets}), len(sets))  # each distinct set once
+        for r in data["rows"]:
+            self.assertTrue(all("=" in p for p in sets[r[-1]]))
+
+    def test_output_is_deterministic(self):
+        again = resp.build_outputs(self.reports, labelled(self.reports), "r1")
+        self.assertEqual(json.dumps(again["responsibility.json"], sort_keys=True), json.dumps(self.out["responsibility.json"], sort_keys=True))
 
     def test_summary_counts_program_label_confidence(self):
         counts = self.out["responsibility.json"]["summary"]["counts"]

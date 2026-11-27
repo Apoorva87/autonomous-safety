@@ -1,6 +1,5 @@
-import type { Crash } from '../data';
 import { PROGRAMS } from '../theme';
-import { ZONES, type Zone, type WithContact } from './impact';
+import { ZONES, type Zone } from './impact';
 import { csvCell } from './format';
 
 // Responsibility lens (rules v2). An inference from structured report fields, never a finding of fault.
@@ -18,7 +17,9 @@ export type RespFile = {
   fields: string[];
   label_set: string;
   rules_version: string;
-  rows: (string | null)[][];
+  /** Distinct evidence sets ("field=value" lists); each row's `evidence` column indexes into this. */
+  evidence_sets?: string[][];
+  rows: unknown[][];
 };
 export type RespRow = {
   report_id: string;
@@ -31,6 +32,16 @@ export type RespRow = {
   basis: 'field' | 'narrative';
   rule: string;
   agent_hint: string | null;
+  /** Display fields of this report itself (not of the incident's primary report). */
+  severity: string;
+  sv_movement: string | null;
+  cp_movement: string | null;
+  crash_with: string | null;
+  sv_contact_areas: string[];
+  speed_band: string | null;
+  automation_engaged: string | null;
+  /** The rule's evidence as "field=value" pairs. */
+  evidence: string[];
 };
 export type Rule = { id: string; label: Label; confidence: Confidence; description: string };
 export type RetiredRule = Rule & { reason: string; retired_in: string };
@@ -59,9 +70,13 @@ export type AuditFile = {
 
 export function parseRows(file: RespFile): RespRow[] {
   const idx = Object.fromEntries(file.fields.map((f, i) => [f, i]));
+  const sets = file.evidence_sets ?? [];
   return file.rows.map((r) => {
     const o: Record<string, unknown> = {};
     for (const f of file.fields) o[f] = r[idx[f]];
+    const ev = o.evidence;
+    o.evidence = typeof ev === 'number' ? sets[ev] ?? [] : Array.isArray(ev) ? ev : [];
+    o.sv_contact_areas = Array.isArray(o.sv_contact_areas) ? o.sv_contact_areas : [];
     return o as unknown as RespRow;
   });
 }
@@ -87,26 +102,6 @@ export function labelName(label: Label, program?: string): string {
 export const BANNER = (rulesVersion: string) =>
   `Inferred, not a finding of fault. NHTSA records no fault. Labels come from transparent rules on structured report fields (rules v${rulesVersion}); read the rules and the audit below.`;
 
-// ---------- joining to records ----------
-
-export type JoinedRow = RespRow & {
-  /** Highest injury severity of the incident (the record the site already shows). */
-  severity: string;
-  /** The report's own record, when it is the incident's primary report in records.json; otherwise null. */
-  rec: WithContact | null;
-};
-
-/** Join labels to records. Structured fields only exist for each incident's primary report; severity is per incident. */
-export function joinRows(rows: RespRow[], crashes: Crash[]): JoinedRow[] {
-  const byId = new Map<string, WithContact>();
-  const byInc = new Map<string, WithContact>();
-  for (const c of crashes as WithContact[]) {
-    byId.set(c.id, c);
-    byInc.set(c.incident_key, c);
-  }
-  return rows.map((r) => ({ ...r, rec: byId.get(r.report_id) ?? null, severity: (byId.get(r.report_id) ?? byInc.get(r.incident_key))?.severity ?? 'unknown' }));
-}
-
 // ---------- filters ----------
 
 export type RespFilters = {
@@ -125,7 +120,7 @@ export const NO_LIST_FILTERS = { label: '', rule: '', flow: '' };
 const anyOf = (sel: string[], v: string | null | undefined) => sel.length === 0 || (v != null && sel.includes(v));
 
 /** Controls shared by every panel: program, severity, month range. */
-export function applyControls(rows: JoinedRow[], f: Pick<RespFilters, 'programs' | 'severities' | 'from' | 'to'>): JoinedRow[] {
+export function applyControls(rows: RespRow[], f: Pick<RespFilters, 'programs' | 'severities' | 'from' | 'to'>): RespRow[] {
   return rows.filter(
     (r) =>
       anyOf(f.programs, r.program) &&
@@ -136,7 +131,7 @@ export function applyControls(rows: JoinedRow[], f: Pick<RespFilters, 'programs'
 }
 
 /** Controls plus the list-only filters (label, rule, flow selection). */
-export function applyFilters(rows: JoinedRow[], f: RespFilters): JoinedRow[] {
+export function applyFilters(rows: RespRow[], f: RespFilters): RespRow[] {
   const base = applyControls(rows, f);
   const flow = f.flow ? f.flow.split('|') : [];
   return base.filter((r) => {
@@ -174,7 +169,7 @@ const emptyCounts = (): Record<Label, Record<Confidence, number>> => ({
 });
 
 /** Counts and shares per program, in the site's program order. Programs are never summed together. */
-export function aggregateByProgram(rows: JoinedRow[]): ProgramAgg[] {
+export function aggregateByProgram(rows: RespRow[]): ProgramAgg[] {
   const m = new Map<string, ProgramAgg>();
   for (const r of rows) {
     let a = m.get(r.program);
@@ -231,7 +226,7 @@ export function periodRange(months: string[], grain: Grain): string[] {
 export type TimeSeries = { periods: string[]; counts: Record<Label, number[]>; totals: number[] };
 
 /** Label counts per period for one program's rows. Rows with no month are left out. */
-export function timeSeries(rows: JoinedRow[], periods: string[], grain: Grain): TimeSeries {
+export function timeSeries(rows: RespRow[], periods: string[], grain: Grain): TimeSeries {
   const at = new Map(periods.map((p, i) => [p, i]));
   const counts: Record<Label, number[]> = { other_party: periods.map(() => 0), subject_vehicle_initiated: periods.map(() => 0), indeterminate: periods.map(() => 0) };
   const totals = periods.map(() => 0);
@@ -306,14 +301,13 @@ export const COLUMN_TITLE: Record<(typeof COLUMNS)[number], string> = {
   eng: 'Engagement', mv: 'Subject vehicle movement', cw: 'What was hit', ip: 'Impact point on the subject vehicle', lb: 'Inferred label',
 };
 
-/** Node ids along the flow (one per column) for a row, or null when the row has no structured record to read. */
-export function pathOf(r: JoinedRow): string[] | null {
-  if (!r.rec) return null;
+/** Node ids along the flow, one per column. */
+export function pathOf(r: RespRow): string[] {
   return [
     `eng:${isL2(r.program) ? 'l2' : 'ads'}`,
-    `mv:${movementGroup(r.rec.sv_movement)}`,
-    `cw:${hitGroup(r.rec.crash_with)}`,
-    `ip:${impactGroup(r.rec.sv_contact_areas)}`,
+    `mv:${movementGroup(r.sv_movement)}`,
+    `cw:${hitGroup(r.crash_with)}`,
+    `ip:${impactGroup(r.sv_contact_areas)}`,
     `lb:${labelKey(r)}`,
   ];
 }
@@ -328,22 +322,16 @@ export const NODE_NAME = (id: string): string => {
 export type SankeyGraph = {
   nodes: { id: string; col: number; value: number }[];
   links: { source: string; target: string; value: number }[];
-  /** Rows drawn / rows left out because their structured fields are not in records.json. */
+  /** Reports drawn (every report in view). */
   drawn: number;
-  skipped: number;
 };
 
-export function buildSankey(rows: JoinedRow[]): SankeyGraph {
+export function buildSankey(rows: RespRow[]): SankeyGraph {
   const nodes = new Map<string, { id: string; col: number; value: number }>();
   const links = new Map<string, { source: string; target: string; value: number }>();
   let drawn = 0;
-  let skipped = 0;
   for (const r of rows) {
     const p = pathOf(r);
-    if (!p) {
-      skipped++;
-      continue;
-    }
     drawn++;
     p.forEach((id, col) => {
       const n = nodes.get(id) ?? { id, col, value: 0 };
@@ -358,55 +346,37 @@ export function buildSankey(rows: JoinedRow[]): SankeyGraph {
     });
   }
   const order = (a: { col: number; value: number; id: string }, b: { col: number; value: number; id: string }) => a.col - b.col || b.value - a.value || a.id.localeCompare(b.id);
-  return { nodes: [...nodes.values()].sort(order), links: [...links.values()].sort((a, b) => b.value - a.value), drawn, skipped };
+  return { nodes: [...nodes.values()].sort(order), links: [...links.values()].sort((a, b) => b.value - a.value), drawn };
 }
 
 // ---------- rule evidence ----------
 
-const EV = {
-  mov: 'sv_movement', area: 'sv_contact_areas', cw: 'crash_with', cpm: 'cp_movement', spd: 'speed_mph',
-} as const;
-/** Structured fields each rule reads, shown as field=value in the drawer. */
-export const RULE_EVIDENCE: Record<string, string[]> = {
-  'RESP-OTH-1': [EV.mov, EV.area, EV.cw],
-  'RESP-OTH-2': [EV.area, EV.mov, EV.cw],
-  'RESP-OTH-3': [EV.cpm, EV.mov, EV.area, EV.cw],
-  'RESP-OTH-4': [EV.area, EV.mov, EV.cw],
-  'RESP-SUB-1': [EV.mov],
-  'RESP-SUB-2': [EV.cw, EV.mov, EV.spd],
-  'RESP-SUB-3': [EV.area, EV.cpm, EV.mov],
-  'RESP-IND-1': [EV.mov, EV.area],
-  'RESP-IND-2': [EV.mov, EV.area, EV.cpm, EV.cw],
-  'RESP-IND-3': [EV.mov, EV.area, EV.cpm, EV.cw, EV.spd],
-  'RESP-IND-4': [EV.mov, EV.area, EV.cpm],
-  'RESP-NAR-1': [EV.mov, EV.area, EV.cw],
-};
-
-const show = (v: unknown): string => (v == null ? 'not reported' : Array.isArray(v) ? (v.length ? v.join(', ') : 'none listed') : String(v));
-export function evidenceFor(r: JoinedRow): { field: string; value: string }[] {
-  const fields = RULE_EVIDENCE[r.rule] ?? [];
-  if (!r.rec) return [];
-  const rec = r.rec as unknown as Record<string, unknown>;
-  return fields.map((f) => ({ field: f, value: show(rec[f]) }));
+/** The label's evidence as {field, value} (parsed from "field=value"; list values stay "a;b" shown as "a, b"). */
+export function evidenceFor(r: RespRow): { field: string; value: string }[] {
+  return r.evidence.map((p) => {
+    const i = p.indexOf('=');
+    const field = i < 0 ? p : p.slice(0, i);
+    const value = i < 0 ? '' : p.slice(i + 1).split(';').join(', ');
+    return { field, value: value === '' ? 'not reported' : value };
+  });
 }
 
 // ---------- CSV ----------
 
 export const CSV_HEAD = [
   'report_id', 'incident_key', 'program', 'month', 'label', 'label_display', 'confidence', 'basis', 'rule', 'severity',
-  'crash_with', 'sv_movement', 'cp_movement', 'speed_mph', 'sv_contact_areas', 'cp_contact_areas',
+  'crash_with', 'sv_movement', 'cp_movement', 'speed_band', 'sv_contact_areas', 'automation_engaged', 'evidence',
 ];
 
-/** CSV of the listed rows (RFC 4180 quoting, header first, CRLF). Structured fields are blank when the report has no record. */
-export function toCsv(rows: JoinedRow[]): string {
+/** CSV of the listed rows (RFC 4180 quoting, header first, CRLF). Every report carries its own fields. */
+export function toCsv(rows: RespRow[]): string {
   const lines = [CSV_HEAD.join(',')];
   for (const r of rows) {
-    const c = r.rec;
     lines.push(
       [
         r.report_id, r.incident_key, r.program, r.month ?? '', r.label, labelName(r.label, r.program), r.confidence, r.basis, r.rule, r.severity,
-        c?.crash_with ?? '', c?.sv_movement ?? '', c?.cp_movement ?? '', c?.speed_mph ?? '',
-        (c?.sv_contact_areas ?? []).join(';'), (c?.cp_contact_areas ?? []).join(';'),
+        r.crash_with ?? '', r.sv_movement ?? '', r.cp_movement ?? '', r.speed_band ?? '', r.sv_contact_areas.join(';'), r.automation_engaged ?? '',
+        r.evidence.join(';'),
       ].map(csvCell).join(','),
     );
   }
@@ -417,21 +387,12 @@ export function toCsv(rows: JoinedRow[]): string {
 
 export const ADS_PROGRAMS = ['waymo_ads', 'zoox_ads', 'gm_cruise_ads', 'tesla_robotaxi', 'other_ads'];
 
-export type ComparisonRow = {
-  program: string;
-  /** Reports whose narrative is readable (not redacted) and whose structured record is in records.json. */
-  readable: number;
-  readableOtherHigh: number;
-  all: number;
-  allOtherHigh: number;
-};
+export type ComparisonRow = { program: string; all: number; allOtherHigh: number };
 
-/** Per ADS program: of the reports with a readable narrative, the share labelled other party with high confidence. */
-export function comparisonStrip(rows: JoinedRow[]): ComparisonRow[] {
+/** Per ADS program: the share of its reports labelled other party with high confidence. */
+export function comparisonStrip(rows: RespRow[]): ComparisonRow[] {
   return ADS_PROGRAMS.map((program) => {
     const mine = rows.filter((r) => r.program === program);
-    const readable = mine.filter((r) => r.rec && !r.rec.narrative_redacted);
-    const hi = (r: JoinedRow) => r.label === 'other_party' && r.confidence === 'high';
-    return { program, readable: readable.length, readableOtherHigh: readable.filter(hi).length, all: mine.length, allOtherHigh: mine.filter(hi).length };
+    return { program, all: mine.length, allOtherHigh: mine.filter((r) => r.label === 'other_party' && r.confidence === 'high').length };
   }).filter((c) => c.all > 0);
 }

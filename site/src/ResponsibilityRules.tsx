@@ -1,13 +1,13 @@
 import { useMemo } from 'react';
 import { fmt } from './data';
 import { PROGRAM_BY_KEY, PROGRAMS, LABEL_COLOR, colorOf, type Mode } from './theme';
-import { CANNOT_NAME, CONFIDENCE_NAME, OTHER_NAME, comparisonStrip, labelName, type JoinedRow } from './lib/responsibility';
+import { CANNOT_NAME, CONFIDENCE_NAME, OTHER_NAME, comparisonStrip, labelName, type RespRow } from './lib/responsibility';
 import type { RespData } from './state/responsibilityData';
 
 const pct = (x: number, d = 0) => (x * 100).toFixed(d) + '%';
 
 /** Comparison strip: ADS programs only, where narratives are readable. Tesla Level 2 is explicitly not like for like. */
-export function ComparisonStrip({ rows, resp }: { rows: JoinedRow[]; resp: RespData }) {
+export function ComparisonStrip({ rows, resp }: { rows: RespRow[]; resp: RespData }) {
   const strip = useMemo(() => comparisonStrip(rows), [rows]);
   const tesla = useMemo(() => {
     const t = resp.rows.filter((r) => r.program === 'tesla_l2');
@@ -17,20 +17,20 @@ export function ComparisonStrip({ rows, resp }: { rows: JoinedRow[]; resp: RespD
     <div className="resp-strip">
       <h3>Comparing driverless (ADS) programs</h3>
       <p className="prose small">
-        Among each ADS program&rsquo;s reports whose <b>narrative is readable</b>, the share labelled <b>{OTHER_NAME}</b> with <b>high confidence</b>. Readable narratives let the audit below check the labels, so these rows rest on the best-documented reports.
+        For each ADS program, the share of its reports labelled <b>{OTHER_NAME}</b> with <b>high confidence</b>. ADS companies file readable narratives for nearly every report, so the audit below can check their labels; that is what makes this comparison fair, and what Tesla Level 2 lacks.
       </p>
       {strip.length === 0 ? (
         <p className="callout small">No ADS reports in this view.</p>
       ) : (
         <div className="table-wrap">
           <table className="strip-table">
-            <caption className="sr-only">Other party, high confidence, among reports with a readable narrative</caption>
+            <caption className="sr-only">Other party with high confidence, by ADS program</caption>
             <thead>
               <tr>
                 <th scope="col">Program</th>
-                <th scope="col" className="num">Reports with a readable narrative</th>
-                <th scope="col" className="num">Of those: other party, high confidence</th>
-                <th scope="col" className="num">All reports: other party, high confidence</th>
+                <th scope="col" className="num">Reports in view</th>
+                <th scope="col" className="num">Readable narratives (all reports, audit)</th>
+                <th scope="col" className="num">Other party, high confidence</th>
                 <th scope="col" className="num">Audit: narrative cue agrees</th>
               </tr>
             </thead>
@@ -40,9 +40,9 @@ export function ComparisonStrip({ rows, resp }: { rows: JoinedRow[]; resp: RespD
                 return (
                   <tr key={c.program}>
                     <th scope="row">{PROGRAM_BY_KEY[c.program]?.short ?? c.program}</th>
-                    <td className="num">{fmt(c.readable)}</td>
-                    <td className="num">{c.readable >= 10 ? <><b>{pct(c.readableOtherHigh / c.readable)}</b> <span className="small">({fmt(c.readableOtherHigh)})</span></> : <span className="small">too few ({fmt(c.readable)})</span>}</td>
-                    <td className="num">{pct(c.allOtherHigh / c.all)} <span className="small">({fmt(c.allOtherHigh)} of {fmt(c.all)})</span></td>
+                    <td className="num">{fmt(c.all)}</td>
+                    <td className="num">{a ? fmt(a.readable_narratives) : 'n/a'}</td>
+                    <td className="num">{c.all >= 10 ? <><b>{pct(c.allOtherHigh / c.all)}</b> <span className="small">({fmt(c.allOtherHigh)} of {fmt(c.all)})</span></> : <span className="small">too few ({fmt(c.all)})</span>}</td>
                     <td className="num">{a?.agreement_rate != null ? `${pct(a.agreement_rate, 1)} (${fmt(a.agree)} of ${fmt(a.agree + a.disagree)})` : 'n/a'}</td>
                   </tr>
                 );
@@ -59,7 +59,7 @@ export function ComparisonStrip({ rows, resp }: { rows: JoinedRow[]; resp: RespD
   );
 }
 
-export function RulesAndAudit({ resp, rows, mode, onRule, onOpen }: { resp: RespData; rows: JoinedRow[]; mode: Mode; onRule: (id: string) => void; onOpen: (reportId: string) => void }) {
+export function RulesAndAudit({ resp, rows, mode, onRule, onOpen }: { resp: RespData; rows: RespRow[]; mode: Mode; onRule: (id: string) => void; onOpen: (reportId: string) => void }) {
   const byRule = useMemo(() => {
     const m = new Map<string, number>();
     for (const r of rows) m.set(r.rule, (m.get(r.rule) ?? 0) + 1);
