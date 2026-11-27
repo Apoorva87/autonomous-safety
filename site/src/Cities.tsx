@@ -2,7 +2,11 @@ import { useMemo } from 'react';
 import type { Data } from './data';
 import { fmt } from './data';
 import { PROGRAM_BY_KEY, PROGRAMS, colorOf, ui, type Mode } from './theme';
-import { scopedCounts, useRatesData, type RatesData } from './data/rates';
+import { excludedByMonth, regionRateBlock, scopedCounts, sumExcluded, useRatesData, type RatesData } from './data/rates';
+import { isRiderOnlyProgram } from './lib/scope';
+import { KIND_GROUPS, kindOf } from './lib/kinds';
+import { KindCaveat } from './components/KindCaveat';
+import { IncompleteMark } from './components/FlagNote';
 import { CITY_REGION_BY_KEY, pool, rankCities, unmatchedCities, type Pooled } from './lib/cities';
 import { learningCurve, monthlyPoints } from './lib/learning';
 import { fmtNum } from './lib/format';
@@ -27,6 +31,9 @@ type Row = {
   pooled: Pooled | null;
   monthly: Point[];
   quarters: SparkPt[];
+  /** The region has no crash scope: no rate, with a data-health warning. */
+  unmapped: boolean;
+  excluded: { in_vehicle: number; other: number } | null;
 };
 
 function CitiesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mode: Mode }) {
@@ -57,13 +64,17 @@ function CitiesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
   const rows: Row[] = useMemo(
     () =>
       regions.map((region) => {
-        const counts = scopedCounts(rates.countRows, data.crashes, prog, region);
+        const counts = scopedCounts(rates.countRows, data.crashes, prog, region, { riderOnly: scenario.riderOnly });
         const monthly = monthlyPoints(counts, rates.exposure, scenario, { program: prog, region, lastMonth: rates.lastMonth, lag: rates.lag[prog] });
         const inPeriod = period === 'all' ? monthly : monthly.filter((p) => p.period.startsWith(period));
         const quarters = learningCurve(monthly, { group: 'quarter', lastMonth: rates.lastMonth, lag: rates.lag[prog] }).map((q) => ({
           period: q.period, t: dateMs(q.months[1] + '-15'), rate: q.rate, lo: q.lo, hi: q.hi, lowSample: q.lowSample, k: q.k, recent: q.recent,
         }));
-        return { region, label: CITY_REGION_BY_KEY[region]?.label ?? region, pooled: pool(inPeriod), monthly: inPeriod, quarters };
+        const pooled = pool(inPeriod);
+        const excluded = scenario.riderOnly && isRiderOnlyProgram(prog) && counts != null && pooled
+          ? sumExcluded(excludedByMonth(data.crashes, prog, region), inPeriod.filter((p) => p.exposure != null).flatMap((p) => p.months))
+          : null;
+        return { region, label: CITY_REGION_BY_KEY[region]?.label ?? region, pooled, monthly: inPeriod, quarters, unmapped: regionRateBlock(region) === 'unmapped', excluded };
       }),
     [regions, rates, data.crashes, prog, scenario, period],
   );
@@ -77,7 +88,7 @@ function CitiesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
     hi: r.pooled?.hi ?? null,
     lowSample: r.pooled?.lowSample ?? true,
     color,
-    reason: `No ${info.short} miles disclosed for ${r.label} in ${period === 'all' ? 'any month' : period}.`,
+    reason: r.unmapped ? 'No rate: region not mapped (no crash scope is defined for this area).' : `No ${info.short} miles disclosed for ${r.label} in ${period === 'all' ? 'any month' : period}.`,
   }));
   const shown = rows.filter((r) => r.pooled);
   const anyScenario = rows.some((r) => r.pooled?.scenario);
@@ -89,14 +100,21 @@ function CitiesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
   const yMax = (allQ.length ? Math.max(...allQ.map((q) => q.rate)) : 1) * 1.12 || 1;
 
   // counts-only ranking
+  // The ranking is per program or per kind group, never across Level 2 and ADS.
   const rankProg = params.get('crk') ?? prog;
-  const ranking = useMemo(() => rankCities(data.crashes, rankProg === 'all' ? null : rankProg), [data.crashes, rankProg]);
+  const rankKind = KIND_GROUPS.find((g) => 'kind:' + g.id === rankProg);
+  const ranking = useMemo(
+    () => rankCities(data.crashes, rankKind ? rankKind.programs : rankProg),
+    [data.crashes, rankProg], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const unmatched = useMemo(() => unmatchedCities(ranking), [ranking]);
   const top = ranking.slice(0, 20);
   const maxN = top[0]?.n ?? 1;
   const regionsWithMiles = new Set(regions);
   const totalRanked = ranking.reduce((a, r) => a + r.n, 0);
   const haveMiles = (r: { regions: string[] }) => rankProg === prog && r.regions.some((x) => regionsWithMiles.has(x));
+  const unmappedRows = rows.filter((r) => r.unmapped);
+  const excludedTotal = rows.reduce((a, r) => a + (r.excluded ? r.excluded.in_vehicle + r.excluded.other : 0), 0);
 
   const sourceIds = [...new Set(rows.flatMap((r) => r.pooled?.sourceIds ?? []))];
 
@@ -108,7 +126,15 @@ function CitiesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
           Only Waymo discloses miles by city, so only Waymo gets city rates. A city's crashes are NHTSA reports whose city field is on the explicit list for that
           service area (below), over the same months as the miles. Waymo's monthly city miles are mostly <b>interpolated estimates</b> between its quarterly or
           annual disclosures, so every bar here is hatched as an estimate. Rates carry an exact Poisson 95% interval.
+          Waymo's miles are rider-only, so a city's crash count leaves out crashes that had an in-vehicle operator
+          {excludedTotal > 0 ? ` (${fmt(excludedTotal)} excluded over the months shown)` : ''}.
         </p>
+        <KindCaveat extra="Only driverless (ADS) programs disclose city miles, so the rates here are all ADS." />
+        {unmappedRows.map((r) => (
+          <p key={r.region} className="callout health-warn small" role="alert">
+            <b>Data health warning:</b> the exposure region <span className="mono">{r.region}</span> has no crash scope in the city map, so it shows no rate (never 0). Add its cities to the map before publishing a rate.
+          </p>
+        ))}
 
         <p className="callout small" role="note" style={{ marginTop: 0 }}>
           <b>All city rates rest on interpolated miles (hatched bars).</b> Waymo discloses city miles in quarterly or annual steps, and the monthly split inside each step is an interpolation, so
@@ -198,11 +224,11 @@ function CitiesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
                       <td>{r.pooled.kind}</td>
                       <td className="num"><b>{fmtNum(r.pooled.rate)}</b></td>
                       <td>{fmtNum(r.pooled.lo)} to {fmtNum(r.pooled.hi)}</td>
-                      <td>{r.pooled.lowSample && <LowSampleMark />}{r.pooled.scenario && <ScenarioBadge />}</td>
+                      <td>{r.pooled.lowSample && <LowSampleMark />}{r.pooled.scenario && <ScenarioBadge />}{r.pooled.incomplete.length > 0 && <IncompleteMark months={r.pooled.incomplete} />}</td>
                       <td><SourceBadge sourceIds={r.pooled.sourceIds} kind={r.pooled.kind} /></td>
                     </>
                   ) : (
-                    <td colSpan={8} className="small">No miles disclosed for this period: no rate.</td>
+                    <td colSpan={8} className="small">{r.unmapped ? 'No rate: region not mapped.' : 'No miles disclosed for this period: no rate.'}</td>
                   )}
                 </tr>
               ))}
@@ -220,11 +246,15 @@ function CitiesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
           <label className="field">
             Program
             <select value={rankProg} onChange={(e) => setQuery({ crk: e.target.value === prog ? null : e.target.value })}>
-              <option value="all">All programs</option>
-              {PROGRAMS.map((p) => <option key={p.key} value={p.key}>{p.short}</option>)}
+              {KIND_GROUPS.map((g) => (
+                <optgroup key={g.id} label={g.label}>
+                  <option value={'kind:' + g.id}>All {g.short === 'ADS' ? 'driverless (ADS)' : 'Level 2'} programs</option>
+                  {PROGRAMS.filter((p) => kindOf(p.key) === g.id).map((p) => <option key={p.key} value={p.key}>{p.short}</option>)}
+                </optgroup>
+              ))}
             </select>
           </label>
-          <span className="small">{fmt(totalRanked)} unique crashes in {fmt(ranking.length)} cities.</span>
+          <span className="small">{fmt(totalRanked)} crashes in {fmt(ranking.length)} cities. Ranked within one program or one kind group, never Level 2 with ADS.</span>
         </div>
         <ul className="bars" aria-label="Crashes by city, counts only">
           {top.map((r) => (
@@ -245,7 +275,7 @@ function CitiesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
           </p>
           <p className="small">{unmatched.map((r) => `${r.city}, ${r.state} (${r.n})`).join('; ')}</p>
         </details>
-        <SourceNote date={data.meta.fetched_date} extra="Crashes: NHTSA SGO unique crashes by the city field. Miles: Waymo Safety Impact hub (see source badges); monthly values are interpolated estimates." />
+        <SourceNote date={data.meta.fetched_date} extra="Crashes: NHTSA SGO crashes per program (one record per program and incident) by the city field. Miles: Waymo Safety Impact hub (see source badges); monthly values are interpolated estimates." />
       </section>
     </SourcesCtx.Provider>
   );

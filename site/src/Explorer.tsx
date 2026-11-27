@@ -1,3 +1,4 @@
+import { KindCaveat } from './components/KindCaveat';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import DeckGL from '@deck.gl/react';
 import { OrthographicView } from '@deck.gl/core';
@@ -210,6 +211,21 @@ export function Explorer({ data, mode }: { data: Data; mode: Mode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [crashes, filters, lens, periodFrom, periodTo]);
   const shown = useMemo(() => visible.reduce((a, b) => a + b, 0), [visible]);
+  const shownIncidents = useMemo(() => {
+    const keys = new Set<string>();
+    crashes.forEach((c, i) => {
+      if (visible[i]) keys.add(c.incident_key);
+    });
+    return keys.size;
+  }, [crashes, visible]);
+  // The month axis carries the 2025-06-16 rule change as a dashed line (placed mid-June: halfway between the June and July positions).
+  const breakAt = useMemo(() => {
+    if (xKey !== 'month') return null;
+    const at = (mo: string) => xScale.pos({ month: mo } as Crash, 0);
+    const a = at('2025-06');
+    const b = at('2025-07');
+    return Number.isFinite(a) && Number.isFinite(b) ? (a + b) / 2 : null;
+  }, [xKey, xScale]);
 
   // Facet value counts, with every other facet applied (standard cross-filter behavior).
   const facetCounts = useMemo(() => {
@@ -307,8 +323,9 @@ export function Explorer({ data, mode }: { data: Data; mode: Mode }) {
   return (
     <section>
       <h2>Crash explorer</h2>
+      <KindCaveat extra="Dots of both kinds share the plot, so read stacks and clusters as where reports were filed, not as relative safety." />
       <p className="prose">
-        Every dot is one unique crash. Choose what the two axes show, narrow the set with the filters, and hover or
+        Every dot is one crash filed by one program (a crash filed by two programs is two dots, one per program&rsquo;s own report). Choose what the two axes show, narrow the set with the filters, and hover or
         click a dot. Dots are nudged apart a little so stacks stay visible, so position within a category is not
         meaningful.
       </p>
@@ -338,7 +355,7 @@ export function Explorer({ data, mode }: { data: Data; mode: Mode }) {
           </select>
         </label>
         <p className="count" aria-live="polite" data-testid="shown-count">
-          <b>{fmt(shown)}</b> of {fmt(crashes.length)} crashes shown
+          <b>{fmt(shown)}</b> of {fmt(crashes.length)} crashes shown (program-level; {fmt(shownIncidents)} unique incidents)
           {anyFilter && (
             <button className="link" onClick={clearAll}>
               Clear filters
@@ -423,6 +440,12 @@ export function Explorer({ data, mode }: { data: Data; mode: Mode }) {
                   </text>
                 </g>
               ))}
+              {breakAt != null && breakAt >= 0 && breakAt <= 1 && (
+                <g>
+                  <line x1={m.l + breakAt * pw} x2={m.l + breakAt * pw} y1={m.t} y2={m.t + ph} stroke="#b3361a" strokeWidth={1.5} strokeDasharray="5 4" />
+                  <text x={m.l + breakAt * pw - 4} y={m.t + 10} textAnchor="end" fontSize="10.5" fill={t.muted}>2025-06-16 rule change</text>
+                </g>
+              )}
               {yScale.ticks.map((tk, i) => (
                 <g key={'y' + i}>
                   <line x1={m.l} x2={m.l + pw} y1={m.t + (1 - tk.at) * ph} y2={m.t + (1 - tk.at) * ph} stroke={t.grid} />
@@ -477,7 +500,7 @@ export function Explorer({ data, mode }: { data: Data; mode: Mode }) {
               </li>
             ))}
           </ul>
-          <SourceNote date={data.meta.fetched_date} extra="One dot per unique crash (reports of the same incident merged). Rendered with WebGL." />
+          <SourceNote date={data.meta.fetched_date} extra="One dot per program-level crash record (the program's own report of the incident; the header counts the unique incidents). Rendered with WebGL." />
         </div>
 
         {picked && <Drawer c={picked} onClose={() => setPicked(null)} />}
@@ -495,7 +518,8 @@ function Drawer({ c, onClose }: { c: Crash; onClose: () => void }) {
   const rows: [string, string][] = [
     ['NHTSA Report ID', c.id],
     ['Incident ID', c.incident_key.startsWith('solo:') ? 'None (single report)' : c.incident_key],
-    ['Reports for this crash', String(c.n_reports)],
+    ['Reports by this program for this crash', String(c.n_reports)],
+    ['Programs that filed this incident', String(c.n_programs_in_incident)],
     ['Reporting entity', c.entity],
     ['Program', PROGRAM_BY_KEY[c.program]?.label ?? c.program],
     ['Incident month', c.month ?? 'Not reported'],
@@ -536,7 +560,7 @@ function Drawer({ c, onClose }: { c: Crash; onClose: () => void }) {
           </div>
         ))}
       </dl>
-      <p className="small">Narratives are not included in this preview. The record shown is one report of this crash (the one with the highest injury level).</p>
+      <p className="small">Narratives are not included in this preview. The record shown is this program&rsquo;s own report of the crash (the one with the highest injury level if it filed several).</p>
     </aside>
   );
 }

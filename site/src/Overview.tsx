@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import type { Data } from './data';
 import { fmt } from './data';
 import { EChart, SourceNote } from './EChart';
+import { KindCaveat } from './components/KindCaveat';
+import { kindOf, type KindId } from './lib/kinds';
 import {
   PROGRAMS,
   PROGRAM_BY_KEY,
@@ -15,7 +17,7 @@ import {
 
 const START = '2021-01'; // SGO reporting began mid-2021; earlier-dated crashes are counted in the footnote.
 
-type Panel = { key: string; title: string; color: string; series: number[]; total: number; note?: string };
+type Panel = { key: string; title: string; color: string; series: number[]; total: number; note?: string; kind: KindId | null };
 
 export function Overview({ data, mode }: { data: Data; mode: Mode }) {
   const { counts, crashes, meta } = data;
@@ -27,7 +29,8 @@ export function Overview({ data, mode }: { data: Data; mode: Mode }) {
 
   const entities = useMemo(() => {
     const c = new Map<string, number>();
-    for (const x of crashes) if (x.company === 'zoox' || x.company === 'other') c.set(x.entity, (c.get(x.entity) ?? 0) + 1);
+    // Program-level records: an entity counts once per (program, incident) it filed in.
+    for (const x of crashes) if (x.company === 'zoox' || x.company === 'other') for (const name of x.entities) c.set(name, (c.get(name) ?? 0) + 1);
     return [...c.entries()].sort((a, b) => b[1] - a[1]);
   }, [crashes]);
 
@@ -52,7 +55,7 @@ export function Overview({ data, mode }: { data: Data; mode: Mode }) {
     };
     const mk = (key: string, keys: string[], title: string, color: string): Panel => {
       const series = programSeries(keys);
-      return { key, title, color, series, total: series.reduce((a, b) => a + b, 0) };
+      return { key, title, color, series, total: series.reduce((a, b) => a + b, 0), kind: kindOf(keys[0]) };
     };
     const col = (k: string) => colorOf(PROGRAM_BY_KEY[k].color, mode);
     const base: Panel[] = ['tesla_l2', 'tesla_robotaxi', 'gm_supercruise', 'gm_cruise_ads', 'waymo_ads'].map((k) =>
@@ -60,7 +63,19 @@ export function Overview({ data, mode }: { data: Data; mode: Mode }) {
     );
     const idx = new Map(months.map((m, i) => [m, i]));
     const custom = new Array(months.length).fill(0);
-    for (const c of crashes) if (c.entity === entity && c.month && idx.has(c.month)) custom[idx.get(c.month)!]++;
+    const entSeen = new Set<string>();
+    for (const c of crashes) {
+      if (!c.entities.includes(entity) || !c.month || !idx.has(c.month)) continue;
+      const k = c.month + '|' + c.incident_key; // one incident filed under two programs counts once for the entity
+      if (entSeen.has(k)) continue;
+      entSeen.add(k);
+      custom[idx.get(c.month)!]++;
+    }
+    const entKind = (() => {
+      const n: Record<string, number> = { ads: 0, l2: 0 };
+      for (const c of crashes) if (c.entities.includes(entity)) n[kindOf(c.program) ?? 'ads']++;
+      return (n.ads >= n.l2 ? 'ads' : 'l2') as KindId;
+    })();
     base.push({
       key: 'custom',
       title: entity,
@@ -68,25 +83,40 @@ export function Overview({ data, mode }: { data: Data; mode: Mode }) {
       series: custom,
       total: custom.reduce((a: number, b: number) => a + b, 0),
       note: 'Pick any reporting entity',
+      kind: entKind,
     });
-    base.push(mk('other', ['other_ads', 'other_l2'], 'All other reporters', col('other_ads')));
+    // "All other reporters" counts distinct incidents across the two programs: an incident filed under both is one crash, not two.
+    const otherIdx = new Map(months.map((m, i) => [m, i]));
+    const otherSeries = new Array(months.length).fill(0);
+    const otherSeen = new Set<string>();
+    for (const c of crashes) {
+      if ((c.program !== 'other_ads' && c.program !== 'other_l2') || !c.month || !otherIdx.has(c.month) || otherSeen.has(c.incident_key)) continue;
+      otherSeen.add(c.incident_key);
+      otherSeries[otherIdx.get(c.month)!]++;
+    }
+    base.push({
+      key: 'other', title: 'All other reporters (ADS and Level 2, distinct incidents)', color: col('other_ads'), series: otherSeries,
+      total: otherSeries.reduce((a: number, b: number) => a + b, 0), kind: null,
+    });
     return base;
   }, [counts, crashes, months, mode, entity]);
 
-  const globalMax = Math.max(...panels.map((p) => Math.max(...p.series)));
+  // The shared scale option never spans kinds: ADS panels share one maximum and Level 2 panels another.
+  const maxOf = (k: KindId | null) => Math.max(1, ...panels.filter((p) => p.kind === k).map((p) => Math.max(...p.series)));
 
   return (
     <section>
       <h2>Crashes per month, by program</h2>
       <p className="prose">
-        Each bar is the number of unique crashes (reports of one crash are merged) with an incident in that month.
-        Counts are not rates: programs differ enormously in miles driven and fleet size, which is why this preview does
+        Each bar is the number of crashes a program filed (reports of one crash by one program are merged) with an incident in that month.
+        Counts are not rates: programs differ enormously in miles driven and fleet size, which is why this page does
         not rank them.
       </p>
+      <KindCaveat extra="Each panel has its own scale; the shared-scale option below only equalises panels of the same kind." />
       <div className="controls">
         <label className="check">
           <input type="checkbox" checked={sameScale} onChange={(e) => setSameScale(e.target.checked)} /> Same vertical
-          scale on every panel
+          scale within each kind (ADS, Level 2)
         </label>
       </div>
 
@@ -115,7 +145,7 @@ export function Overview({ data, mode }: { data: Data; mode: Mode }) {
             <EChart
               height={150}
               label={`Monthly unique crashes, ${p.title}`}
-              option={monthlyOption(months, p.series, p.color, t, sameScale ? globalMax : undefined, meta.structural_break, i === 0)}
+              option={monthlyOption(months, p.series, p.color, t, sameScale ? maxOf(p.kind) : undefined, meta.structural_break, i === 0)}
             />
           </figure>
         ))}
@@ -134,7 +164,7 @@ export function Overview({ data, mode }: { data: Data; mode: Mode }) {
         label was not given. The share of unknowns differs a lot between programs: for Tesla's driver-assist reports
         about 94% are "Unknown" (GM Super Cruise about half), because those filings mostly omit injury detail, while
         driverless programs report it almost always. A low colored share for Tesla therefore does not mean few
-        injuries; compare the colored parts with care.
+        injuries; compare the colored parts with care. Level 2 and driverless programs also have different reporting thresholds, so their severity mixes are not directly comparable.
       </p>
       <EChart
         height={330}

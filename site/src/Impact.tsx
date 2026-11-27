@@ -1,3 +1,4 @@
+import { KindCaveat } from './components/KindCaveat';
 import { useMemo } from 'react';
 import type { Data } from './data';
 import { fmt, humanize } from './data';
@@ -97,6 +98,7 @@ export function Impact({ data, mode }: { data: Data; mode: Mode }) {
         is a vehicle. A crash can touch several zones, so shares can add to more than 100%. Zones with fewer than 10 crashes are hatched: read them as rough.
       </p>
 
+      <KindCaveat extra="Zone shares describe the crashes that were reported; which crashes are reportable differs between the kinds." />
       <div className="rates-controls impact-controls">
         <ChipGroup
           legend="Program"

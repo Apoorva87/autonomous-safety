@@ -83,7 +83,7 @@ export function App() {
           {data && (
             <>
               {' '}
-              {fmt(data.meta.total_incidents)} unique crashes from {fmt(data.meta.total_reports)} reports; NHTSA
+              {fmt(data.meta.total_incidents)} unique incidents ({fmt(data.crashes.length)} program-level crashes) from {fmt(data.meta.total_reports)} reports; NHTSA
               files last updated {data.meta.nhtsa_last_modified}.
             </>
           )}

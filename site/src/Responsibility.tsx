@@ -1,3 +1,4 @@
+import { KindCaveat } from './components/KindCaveat';
 import { useMemo } from 'react';
 import type { EChartsCoreOption } from 'echarts/core';
 import type { Data } from './data';
@@ -73,6 +74,7 @@ function Loaded({ data, resp, mode }: { data: Data; resp: RespData; mode: Mode }
       <div className="callout resp-banner" role="note">
         <b>{BANNER(resp.rulesVersion)}</b>
       </div>
+      <KindCaveat extra="Report counts in the tables below are never compared across the two kinds." />
       <p className="prose">
         Each report gets one label about <b>its own vehicle</b>, from a fixed list of rules that read the structured fields (pre-crash movements, contact areas, what was hit, speed). The labels:
         {' '}<b>{OTHER_NAME}</b>, <b>Own motion</b> and <b>{CANNOT_NAME}</b>. For driver-assist (Level 2) programs own motion reads &ldquo;{OWN_L2}&rdquo;; for driverless (ADS) programs it reads &ldquo;{OWN_ADS}&rdquo;.

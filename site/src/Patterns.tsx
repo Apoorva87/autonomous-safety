@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Data } from './data';
 import { fmt, pct } from './data';
 import { EChart, SourceNote } from './EChart';
+import { KindCaveat } from './components/KindCaveat';
 import { PROGRAMS, TAG_LABEL, TAG_ORDER, ui, type Mode } from './theme';
 
 const RAMP_LIGHT = ['#eef4fd', '#9ec5f4', '#3987e5', '#1c5cab', '#0d366b'];
@@ -120,6 +121,7 @@ export function Patterns({ data, mode }: { data: Data; mode: Mode }) {
         either decided by a structured NHTSA field (road type, lighting, movement) or by keywords in the written
         narrative.
       </p>
+      <KindCaveat extra="Shares of a program's own crashes are comparable in kind, not across kinds: which crashes are reportable differs." />
       <div className="controls row">
         <fieldset className="seg">
           <legend className="sr-only">Cell value</legend>

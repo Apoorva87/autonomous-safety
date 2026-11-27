@@ -13,14 +13,16 @@ import {
 import { setQuery, useQuery, useScenario } from './state/scenario';
 import { getList, setList, toggleIn } from './state/viewstate';
 import { ChipGroup } from './components/ChipGroup';
+import { KindCaveat } from './components/KindCaveat';
+import { limitToKind, toggleWithinKind } from './lib/kinds';
 import { SourcesCtx } from './components/SourceBadge';
 import { SourceNote } from './EChart';
 
 const DAY = 86_400_000;
 const METRICS: { id: Metric; label: string; axis: string }[] = [
   { id: 'perM', label: 'Crashes per million miles', axis: 'crashes per million miles' },
-  { id: 'per10kVeh', label: 'Crashes per 10,000 vehicles', axis: 'crashes per 10,000 vehicles' },
-  { id: 'count', label: 'Crash count', axis: 'unique crashes per month' },
+  { id: 'per10kVeh', label: 'Crashes per 10,000 vehicle-years', axis: 'crashes per 10,000 vehicle-years' },
+  { id: 'count', label: 'Crash count', axis: 'crashes per month (one record per program and incident)' },
 ];
 const LANE_LABEL: Record<string, string> = { launch: 'Launch', recall: 'Recall', suspension: 'Suspend', regulatory: 'Rules', other: 'Other' };
 const LANES = ['launch', 'recall', 'suspension', 'regulatory', 'other'];
@@ -62,7 +64,8 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
     setQuery({ tz0: same ? null : msToDate(r.t0), tz1: same ? null : msToDate(r.t1) });
   };
 
-  const picked = getList(params, 'tpg').filter((p) => PROGRAM_BY_KEY[p]);
+  // One kind group at a time: Level 2 and ADS curves are never overlaid.
+  const picked = limitToKind(getList(params, 'tpg').filter((p) => PROGRAM_BY_KEY[p]));
   const progs = picked.length ? picked : ['waymo_ads'];
   const metric = (METRICS.find((m) => m.id === params.get('tm'))?.id ?? 'perM') as Metric;
   const allCompanies = params.get('tall') === '1';
@@ -71,7 +74,7 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
     () =>
       progs.map((prog) => {
         const region = defaultRegion(rates, prog, metric);
-        const counts = scopedCounts(rates.countRows, data.crashes, prog, region === 'global' ? 'us' : region);
+        const counts = scopedCounts(rates.countRows, data.crashes, prog, region === 'global' ? 'us' : region, { riderOnly: scenario.riderOnly });
         const pts = monthlySeries(counts, rates.exposure, scenario, { program: prog, region, metric, lastMonth: rates.lastMonth, lag: rates.lag[prog] });
         return { prog, label: PROGRAM_BY_KEY[prog].short, color: colorOf(PROGRAM_BY_KEY[prog].color, mode), region, metric, pts };
       }),
@@ -217,9 +220,10 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
             legend="Programs on the curve"
             options={PROGRAMS.map((p) => ({ value: p.key, label: p.short, color: colorOf(p.color, mode) }))}
             selected={progs}
-            onToggle={(v) => setList('tpg', toggleIn(progs, v))}
+            onToggle={(v) => setList('tpg', toggleWithinKind(progs, v))}
           />
         </div>
+        <KindCaveat extra="The curve therefore shows one kind at a time: picking a program of the other kind replaces the selection." />
         <div className="controls">
           <label className="field">
             Curve

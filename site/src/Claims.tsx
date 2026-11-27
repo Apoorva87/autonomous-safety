@@ -6,6 +6,9 @@ import { defaultRegion } from './Rates';
 import { waymoBenchmark, type Forest } from './lib/claims';
 import { series, type Point } from './lib/metrics';
 import { fmtCI, fmtInt, fmtNum, fmtRateText } from './lib/format';
+import { KIND_GROUPS, kindLabel, kindOf, type KindId } from './lib/kinds';
+import { KindCaveat } from './components/KindCaveat';
+import { IncompleteMark } from './components/FlagNote';
 import { useScenario } from './state/scenario';
 import { TeslaVsrPanel } from './components/TeslaVsrPanel';
 import type { BarItem } from './components/RateBars';
@@ -19,7 +22,7 @@ export function Claims({ data, mode }: { data: Data; mode: Mode }) {
   return <ClaimsLoaded data={data} rates={rates} mode={mode} />;
 }
 
-const PROGRAMS_WITH_DENOM = ['waymo_ads', 'gm_supercruise', 'gm_cruise_ads'];
+const PROGRAMS_WITH_DENOM = ['waymo_ads', 'gm_cruise_ads', 'gm_supercruise'];
 const safeUrl = (u: string) => (/^https?:\/\//i.test(u) ? u : '');
 
 /** What a company-reported or NHTSA-derived number counts. Window and scope come from the data rows or the order itself; methodology text is sources.json verbatim. */
@@ -34,7 +37,7 @@ function ClaimsLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
     () =>
       PROGRAMS_WITH_DENOM.map((prog) => {
         const region = defaultRegion(rates, prog, 'milesPerCrash');
-        const counts = scopedCounts(rates.countRows, data.crashes, prog, region === 'global' ? 'us' : region);
+        const counts = scopedCounts(rates.countRows, data.crashes, prog, region === 'global' ? 'us' : region, { riderOnly: scenario.riderOnly });
         const pts = series(counts, rates.exposure, scenario, {
           program: prog, region, metric: 'milesPerCrash', grain: 'year', firstYear: 2021, lastMonth: rates.lastMonth, lag: rates.lag[prog],
         }).filter((p) => (p.rate != null || p.lowerBound) && !p.notes.some((n) => /assumed miles per vehicle/.test(n)));
@@ -42,14 +45,17 @@ function ClaimsLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
       }).filter((d) => d.pts.length > 0),
     [rates, data.crashes, scenario],
   );
-  // The latest COMPLETE year with a rate, per program, for the bar summary.
+  // The latest COMPLETE year with a rate, per program, for the dot summary. One summary per kind group: ADS and Level 2 never share an axis.
   const latest = derived.map((d) => ({ d, p: [...d.pts].reverse().find((p) => !p.partial && p.rate != null) ?? [...d.pts].reverse().find((p) => p.rate != null)! }));
-  const bars: BarItem[] = latest
-    .filter((x) => x.p)
-    .map(({ d, p }) => ({
+  const barsByKind: Record<KindId, BarItem[]> = { ads: [], l2: [] };
+  for (const { d, p } of latest) {
+    const k = kindOf(d.prog);
+    if (!k || !p) continue;
+    barsByKind[k].push({
       key: d.prog, label: d.info.short, sub: p.period + (p.partial ? ' (partial)' : ''), rate: p.rate, lo: p.lo, hi: p.hi, lowSample: p.lowSample,
       color: colorOf(d.info.color, mode),
-    }));
+    });
+  }
 
   const bench = useMemo(() => waymoBenchmark(rates.company), [rates.company]);
   const benchSources = [...new Set(rates.company.filter((r) => r.program === 'waymo_ads').flatMap((r) => r.source_ids))];
@@ -60,24 +66,24 @@ function ClaimsLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
   const counts: Counts[] = [
     {
       id: 'tesla', label: 'Tesla Vehicle Safety Report, "miles per crash"',
-      window: `${teslaRow?.window ?? '5s'}: Autopilot or FSD counted if it was switched off within 5 seconds before impact`,
+      window: `${teslaRow?.window ?? '5s'}: Autopilot or FSD counted if it was active, or deactivated, within 5 seconds before impact (the report's wording: deactivated within 5 seconds before impact)`,
       crash: teslaRow?.method_note ?? 'Airbag or active-restraint deployment.',
       scope: 'Worldwide fleet telemetry (geography not stated); includes crashes that are not reportable to NHTSA',
       sourceIds: ['tesla_vsr_wb_20251030'],
     },
     {
       id: 'sgo-l2', label: 'NHTSA SGO, driver-assist (Level 2): Tesla, GM Super Cruise and others',
-      window: '30 seconds: the assistance must have been engaged within 30 seconds before the crash',
-      crash: 'A crash meeting the order\'s thresholds (for example a fatality, hospital-treated injury, vulnerable road user, airbag deployment or tow-away; the thresholds changed on 2025-06-16, see the order)',
+      window: '30 seconds: the Level 2 system must have been engaged at any time within 30 seconds before the crash, through its conclusion',
+      crash: 'Only a crash meeting the order\'s Level 2 thresholds is reportable (for example a fatality, hospital-treated injury, vulnerable road user, airbag deployment or tow-away; the thresholds changed on 2025-06-16, see the order). This is much narrower than the ADS threshold, so L2 and ADS counts are not comparable',
       scope: 'United States; every reporter subject to the order',
-      sourceIds: ['nhtsa_sgo_page', 'nhtsa_sgo_third_amended'],
+      sourceIds: ['nhtsa_sgo_page', 'nhtsa_sgo_third_amended', 'nhtsa_sgo_ded_archive'],
     },
     {
       id: 'sgo-ads', label: 'NHTSA SGO, driverless (ADS): Waymo, Zoox, Cruise and others',
-      window: 'Automation engaged at any time up to the crash',
-      crash: 'Any crash involving the ADS vehicle above the order\'s property-damage and injury thresholds (changed 2025-06-16)',
+      window: '30 seconds: the ADS must have been engaged at any time within 30 seconds before the crash, through its conclusion (the same window as Level 2)',
+      crash: 'Essentially any crash involving the ADS vehicle that meets the order\'s ADS thresholds (for example any injury or any property damage; changed 2025-06-16). Much broader than the Level 2 threshold, so ADS and L2 counts are not comparable',
       scope: 'United States',
-      sourceIds: ['nhtsa_sgo_page', 'nhtsa_sgo_third_amended'],
+      sourceIds: ['nhtsa_sgo_page', 'nhtsa_sgo_third_amended', 'nhtsa_sgo_ded_archive'],
     },
     {
       id: 'waymo', label: 'Waymo Safety Impact hub, benchmark comparison',
@@ -95,8 +101,8 @@ function ClaimsLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
     },
     {
       id: 'this', label: 'This site\'s derived rates (Rates, Cities and Learning tabs)',
-      window: 'As filed with NHTSA (30 s for driver-assist, any time for driverless)',
-      crash: 'Unique crashes (reports of one incident merged) matched by region and month to the miles',
+      window: 'As filed with NHTSA: a 30-second engagement window for both ADS and Level 2',
+      crash: 'Crashes per program (one record per program and incident) matched by region and month to the miles; for rider-only programs only crashes with no in-vehicle operator',
       scope: 'Only where a sourced denominator exists for the same region; many miles are estimates',
       sourceIds: ['nhtsa_sgo_page'],
     },
@@ -111,6 +117,7 @@ function ClaimsLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
           crash, different places), so <b>the two are shown in separate panels on separate axes and are never merged into one series</b>. Read the "what each number
           counts" table before comparing anything by eye.
         </p>
+        <KindCaveat extra="Level 2 and ADS results below are therefore in separate panels, each on its own axis." />
 
         <div className="claims-grid">
           <div className="claims-col">
@@ -124,49 +131,64 @@ function ClaimsLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
             <section className="vsr-panel">
               <h3>NHTSA-derived miles per crash, where a fair denominator exists</h3>
               <p className="prose small">
-                Unique SGO crashes divided into miles for the <em>same</em> region and months, with an exact Poisson 95% interval. These cover the programs with
+                SGO crashes divided into miles for the <em>same</em> region and months, with an exact Poisson 95% interval. These cover the programs with
                 disclosed miles; <b>Tesla Autopilot/FSD is absent on purpose</b>: Tesla discloses worldwide miles only, and NHTSA's counts cannot be split between
-                Autopilot and FSD, so no US denominator exists. These are 30-second (driver-assist) or any-time (driverless) NHTSA counts, not Tesla's 5-second airbag counts.
+                Autopilot and FSD, so no US denominator exists. These are NHTSA counts with a 30-second engagement window, not Tesla's 5-second airbag counts.
+                For GM Cruise only crashes with no in-vehicle operator are counted, to match its driverless miles.
               </p>
-              {bars.length > 0 ? (
-                <MpcDots items={bars} t={t} />
-              ) : (
-                <p className="small">No program has a usable denominator right now.</p>
-              )}
-              <div className="table-wrap">
-                <table className="rates-table">
-                  <caption className="sr-only">NHTSA-derived miles per crash by program and year</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Program</th>
-                      <th scope="col">Year</th>
-                      <th scope="col" className="num">Crashes</th>
-                      <th scope="col" className="num">Miles</th>
-                      <th scope="col" className="num">Miles per crash</th>
-                      <th scope="col">95% interval</th>
-                      <th scope="col">Flags</th>
-                      <th scope="col">Source</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {derived.flatMap((d) =>
-                      d.pts.map((p: Point) => (
-                        <tr key={d.prog + p.period}>
-                          <td>{d.info.short}<span className="small"> {regionLabel(d.region)}</span></td>
-                          <td>{p.period}</td>
-                          <td className="num">{fmtInt(p.k)}</td>
-                          <td className="num">{fmtNum(p.exposure)}</td>
-                          <td className="num"><b>{fmtRateText(p)}</b></td>
-                          <td>{fmtCI(p)}</td>
-                          <td>{p.lowSample && p.rate != null && <LowSampleMark />}{p.scenario && <ScenarioBadge />}{p.partial && <span className="small"> {p.months.length} mo</span>}</td>
-                          <td><SourceBadge sourceIds={p.sourceIds} kind={p.exposureKind} method={p.method} /></td>
-                        </tr>
-                      )),
+              {KIND_GROUPS.map((g) => {
+                const rows = derived.filter((d) => kindOf(d.prog) === g.id);
+                if (rows.length === 0) return null;
+                return (
+                  <div key={g.id} className={`kind-panel kind-${g.id}`}>
+                    <h4 className="small-h">{kindLabel(g.id)}</h4>
+                    {barsByKind[g.id].length > 0 ? (
+                      <MpcDots items={barsByKind[g.id]} t={t} kind={g.id} />
+                    ) : (
+                      <p className="small">No program of this kind has a usable denominator right now.</p>
                     )}
-                  </tbody>
-                </table>
-              </div>
-              <p className="small">Hollow markers: estimated miles or fewer than 10 crashes. For other programs and months, use the Rates tab.</p>
+                    <div className="table-wrap">
+                      <table className="rates-table">
+                        <caption className="sr-only">{kindLabel(g.id)}: NHTSA-derived miles per crash by program and year</caption>
+                        <thead>
+                          <tr>
+                            <th scope="col">Program</th>
+                            <th scope="col">Year</th>
+                            <th scope="col" className="num">Crashes</th>
+                            <th scope="col" className="num">Miles</th>
+                            <th scope="col" className="num">Miles per crash</th>
+                            <th scope="col">95% interval</th>
+                            <th scope="col">Flags</th>
+                            <th scope="col">Source</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.flatMap((d) =>
+                            d.pts.map((p: Point) => (
+                              <tr key={d.prog + p.period}>
+                                <td>{d.info.short}<span className="small"> {regionLabel(d.region)}</span></td>
+                                <td>{p.period}</td>
+                                <td className="num">{fmtInt(p.k)}</td>
+                                <td className="num">{fmtNum(p.exposure)}</td>
+                                <td className="num"><b>{fmtRateText(p)}</b></td>
+                                <td>{fmtCI(p)}</td>
+                                <td>
+                                  {p.lowSample && p.rate != null && <LowSampleMark />}{p.scenario && <ScenarioBadge />}
+                                  {p.incomplete.length > 0 && <IncompleteMark months={p.incomplete} />}
+                                  {p.partial && <span className="small"> {p.months.length} mo</span>}
+                                  {p.period === '2025' && <span className="small"> spans the 2025-06-16 rule change</span>}
+                                </td>
+                                <td><SourceBadge sourceIds={p.sourceIds} kind={p.exposureKind} method={p.method} /></td>
+                              </tr>
+                            )),
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })}
+              <p className="small">Hollow markers: estimated miles or fewer than 10 crashes. Years that include late months (recent months are incomplete: late reports expected) and 2025, which straddles the 2025-06-16 rule change, are flagged. For other programs and months, use the Rates tab.</p>
             </section>
           </div>
         </div>
@@ -285,7 +307,7 @@ function MethodBox({ ids, src }: { ids: string[]; src: Record<string, SourceRow>
 }
 
 /** Latest-year miles per crash per program on a log axis (driver-assist and driverless programs differ by an order of magnitude). Hollow = low sample or estimated miles. */
-function MpcDots({ items, t }: { items: BarItem[]; t: ReturnType<typeof ui> }) {
+function MpcDots({ items, t, kind }: { items: BarItem[]; t: ReturnType<typeof ui>; kind: KindId }) {
   const ok = items.filter((i) => i.rate != null && i.lo != null);
   if (ok.length === 0) return null;
   const lo10 = Math.floor(Math.log10(Math.min(...ok.map((i) => i.lo as number))));
@@ -298,7 +320,7 @@ function MpcDots({ items, t }: { items: BarItem[]; t: ReturnType<typeof ui> }) {
   const x = (v: number) => L + ((Math.log10(Math.max(v, 10 ** lo10)) - lo10) / (hi10 - lo10 || 1)) * (W - L - R);
   const decades = Array.from({ length: hi10 - lo10 + 1 }, (_, i) => 10 ** (lo10 + i));
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="forest" role="img" aria-label="NHTSA-derived miles per crash by program, latest year, with 95% intervals, on a logarithmic axis">
+    <svg viewBox={`0 0 ${W} ${H}`} className="forest" role="img" aria-label={`NHTSA-derived miles per crash, ${kindLabel(kind)} programs, latest year, with 95% intervals, on a logarithmic axis`}>
       {decades.map((d) => (
         <g key={d}>
           <line x1={x(d)} x2={x(d)} y1={4} y2={H - 26} stroke={t.grid} />
