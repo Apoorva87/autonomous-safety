@@ -3,9 +3,16 @@ import { useEffect, useState } from 'react';
 export type Crash = {
   id: string;
   incident_key: string;
+  /** How many programs filed a report of this incident (a multi-program incident is one record per program). */
+  n_programs_in_incident: number;
+  /** The program's own reports of this incident. */
   n_reports: number;
   era: string;
   entity: string;
+  /** Every entity that filed a report of this incident under this program (usually just `entity`). */
+  entities: string[];
+  /** Driver / Operator Type of the program's report: none, remote, in_vehicle, in_vehicle_and_remote, consumer, other, unknown. */
+  operator: string | null;
   company: string;
   program: string;
   month: string | null;
@@ -72,6 +79,17 @@ export type Meta = {
   last_month: string | null;
   files: FileInfo[];
   tag_rules: { id: string; t: string; basis: string; description: string }[];
+  run_id: string;
+  run_at: string;
+  rules_version: string;
+  /** True when the published data came from a run that did not download the NHTSA files. */
+  offline: boolean;
+  offline_note: string | null;
+  warnings: string[];
+  counts_total: { reports: number; incidents: number; unique_incidents: number };
+  disclosures: {
+    company: string; program: string; metric: string; last_date: string; age_days: number; expected_every_days: number; stale: boolean;
+  }[];
 };
 
 export type Data = { crashes: Crash[]; counts: Counts; transparency: Transparency; meta: Meta };

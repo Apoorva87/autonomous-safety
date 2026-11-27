@@ -8,7 +8,7 @@ import { DEFAULT_SCENARIO } from '../state/scenario';
 import type { Crash } from '../data';
 
 const data = (f: string) => JSON.parse(readFileSync(new URL(`../../public/data/${f}`, import.meta.url), 'utf8'));
-const crash = (o: Partial<Crash>): Crash => ({ program: 'waymo_ads', city: 'Phoenix', state: 'AZ', month: '2025-03', n_reports: 1, severity: 'none', tags: [], ...o }) as Crash;
+const crash = (o: Partial<Crash>): Crash => ({ program: 'waymo_ads', city: 'Phoenix', state: 'AZ', month: '2025-03', n_reports: 1, severity: 'none', tags: [], operator: 'none', entities: ['Waymo LLC'], incident_key: Math.random().toString(36), ...o }) as Crash;
 
 describe('city name mapping', () => {
   it('maps SGO (state, city) pairs to exposure regions explicitly', () => {
@@ -60,7 +60,7 @@ describe('per-city rate join', () => {
       crash({ city: 'Phoenix' }), crash({ city: 'Tempe' }), crash({ city: 'Tempe', month: '2025-04' }),
       crash({ city: 'Phoenix', state: 'CA' }), crash({ city: 'Los Angeles', state: 'CA' }), crash({ program: 'zoox_ads' }),
     ];
-    const counts = scopedCounts([] as CountRow[], crashes, 'waymo_ads', 'city:phoenix');
+    const counts = scopedCounts([] as CountRow[], crashes, 'waymo_ads', 'city:phoenix')!;
     expect(counts['2025-03'].crashes).toBe(2);
     expect(counts['2025-04'].crashes).toBe(1);
     const pts = series(counts, [row({}), row({ period: '2025-04', value: 500_000 })], DEFAULT_SCENARIO, {

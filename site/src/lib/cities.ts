@@ -54,11 +54,20 @@ export function regionsOfCity(city: string | null | undefined, state: string | n
 
 export type CityCount = { key: string; city: string; state: string; n: number; regions: string[] };
 
-/** "Where are the crashes": unique crashes per (state, city) for one program, sorted by count. */
-export function rankCities(crashes: Crash[], program: string | null): CityCount[] {
+/**
+ * "Where are the crashes": crashes per (state, city) for one program, or for a list of programs (one kind group), sorted by count.
+ * With several programs an incident filed under two of them counts once. Never pass programs of both kinds: their thresholds differ.
+ */
+export function rankCities(crashes: Crash[], program: string | string[] | null): CityCount[] {
   const m = new Map<string, { n: number; spell: Map<string, number>; state: string }>();
+  const programs = program == null ? null : Array.isArray(program) ? new Set(program) : new Set([program]);
+  const seen = new Set<string>();
   for (const c of crashes) {
-    if (program && c.program !== program) continue;
+    if (programs && !programs.has(c.program)) continue;
+    if (programs == null || programs.size > 1) {
+      if (seen.has(c.incident_key)) continue;
+      seen.add(c.incident_key);
+    }
     const city = (c.city ?? '').trim();
     const state = normState(c.state);
     const key = state + '|' + normCity(city);
@@ -92,6 +101,8 @@ export type Pooled = {
   months: number;
   partial: boolean;
   scenario: boolean;
+  /** Months in the pooled periods whose reports are still arriving. */
+  incomplete: string[];
   sourceIds: string[];
 };
 
@@ -113,6 +124,7 @@ export function pool(points: Point[], factor = 1e6): Pooled | null {
     kind, months,
     partial: ok.some((p) => p.partial) || ok.length !== points.length,
     scenario: ok.some((p) => p.scenario),
+    incomplete: [...new Set(ok.flatMap((p) => p.incomplete))].sort(),
     sourceIds: [...new Set(ok.flatMap((p) => p.sourceIds))],
   };
 }

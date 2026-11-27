@@ -1,5 +1,5 @@
 import { ci95 } from './poisson';
-import { cdfAt, series, type CountsByMonth, type ExposureRow, type Kind, type LagCurve, type Metric, type Point } from './metrics';
+import { BREAK_DATE, monthIncomplete, series, type CountsByMonth, type ExposureRow, type Kind, type LagCurve, type Metric, type Point } from './metrics';
 import type { Scenario } from '../state/scenario';
 
 // Learning curves: crash rate against cumulative exposure. Points are calendar quarters built from the
@@ -26,9 +26,16 @@ export type LearnPoint = {
   lowSample: boolean;
   /** Reports for the latest months are still arriving, so the count is probably too low. */
   recent: boolean;
+  /** The period contains the month of the 2025-06-16 rule change: part of it was filed under the old rules, part under the new. */
+  straddlesBreak: boolean;
+  /** Pipeline note when one of the months rests on an unreliable monthly miles split (>3x adjacent segments). */
+  flag: string | null;
   scenario: boolean;
   sourceIds: string[];
 };
+
+/** The break falls inside a month (2025-06-16), so a period that includes that month straddles it. */
+export const straddlesBreak = (months: string[]) => months.includes(BREAK_DATE.slice(0, 7));
 
 export const quarterOf = (month: string) => `${month.slice(0, 4)}-Q${Math.floor((Number(month.slice(5, 7)) - 1) / 3) + 1}`;
 
@@ -36,7 +43,7 @@ const KIND_RANK: Record<Kind, number> = { reported: 0, derived: 1, estimate: 2 }
 
 /** Monthly Points over every year that has exposure, using the same scope-matched series() as the Rates tab. */
 export function monthlyPoints(
-  counts: CountsByMonth,
+  counts: CountsByMonth | null,
   exposure: ExposureRow[],
   scenario: Scenario,
   opts: { program: string; region: string; lastMonth: string; lag?: LagCurve },
@@ -66,7 +73,6 @@ export function learningCurve(
   const valid = monthly
     .filter((p) => p.exposure != null && p.exposure > 0 && !p.notes.some((n) => /assumed miles per vehicle/.test(n)))
     .sort((a, b) => a.period.localeCompare(b.period));
-  const lastIdx = Number(opts.lastMonth.slice(0, 4)) * 12 + Number(opts.lastMonth.slice(5, 7)) - 1;
   const groups = new Map<string, Point[]>();
   for (const p of valid) {
     const g = opts.group === 'quarter' ? quarterOf(p.period) : p.period;
@@ -87,8 +93,6 @@ export function learningCurve(
     const hiK = hi0 * s;
     const kind = pts.reduce<Kind>((a, p) => (p.exposureKind && KIND_RANK[p.exposureKind] > KIND_RANK[a] ? p.exposureKind : a), 'reported');
     const last = pts[pts.length - 1].period;
-    const age = lastIdx - (Number(last.slice(0, 4)) * 12 + Number(last.slice(5, 7)) - 1);
-    const frac = cdfAt(opts.lag, 30 * age);
     out.push({
       period, months: pts.map((p) => p.period), k, kAdj, miles, cumMiles: cum,
       rate: (kAdj / miles) * 1e6, lo: (loK / miles) * 1e6, hi: (hiK / miles) * 1e6,
@@ -97,7 +101,9 @@ export function learningCurve(
       mpcHi: loK > 0 ? miles / loK : null,
       kind,
       lowSample: k < 10 || kind === 'estimate',
-      recent: frac != null ? frac < 0.9 : age < 2,
+      recent: monthIncomplete(opts.lag, last, opts.lastMonth),
+      straddlesBreak: straddlesBreak(pts.map((p) => p.period)),
+      flag: pts.find((p) => p.flag)?.flag ?? null,
       scenario: pts.some((p) => p.scenario),
       sourceIds: [...new Set(pts.flatMap((p) => p.sourceIds))],
     });
@@ -107,7 +113,7 @@ export function learningCurve(
 
 /** Monthly Points for any metric over 2021 to the last month (for the timeline). Months without exposure have a null rate. */
 export function monthlySeries(
-  counts: CountsByMonth,
+  counts: CountsByMonth | null,
   exposure: ExposureRow[],
   scenario: Scenario,
   opts: { program: string; region: string; metric: Metric; lastMonth: string; lag?: LagCurve },

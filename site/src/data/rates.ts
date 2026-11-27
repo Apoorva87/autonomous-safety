@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { Crash } from '../data';
 import type { CountsByMonth, ExposureRow, LagCurve, MonthCounts } from '../lib/metrics';
-import { CITY_REGION_BY_KEY } from '../lib/cities';
+import { CITY_REGION_BY_KEY, normCity, normState } from '../lib/cities';
+import { isRiderOnlyProgram, operatorClass, scopeOf, type OperatorClass, type Scope } from '../lib/scope';
+
+export { scopeOf, regionRateBlock } from '../lib/scope';
 
 // Loaders and scope helpers for the Rates tab. narratives.json is deliberately not loaded here.
 
@@ -89,29 +92,12 @@ export function useInvestigations(): InvestigationRow[] {
 
 // ---- region scopes ----
 
-type Scope = { all: true } | { state: string; cities?: string[] };
-
-/** The crash scope that matches an exposure region. null = the region cannot be matched to NHTSA crashes. */
-export function scopeOf(region: string): Scope | null {
-  switch (region) {
-    case 'us':
-    case 'north_america':
-      return { all: true };
-    case 'ca':
-      return { state: 'CA' };
-    default: {
-      const r = CITY_REGION_BY_KEY[region];
-      return r ? { state: r.state, cities: r.cities } : null;
-    }
-  }
-}
-
 export function regionLabel(region: string): string {
   const named: Record<string, string> = {
     us: 'United States',
     north_america: 'North America (includes Canada miles)',
     global: 'Worldwide (no US denominator)',
-    ca: 'California only',
+    ca: 'California DMV testing (miles only, no rate)',
     'city:phoenix': 'Phoenix metro',
     'city:los_angeles': 'Los Angeles area',
     'city:san_francisco': 'San Francisco',
@@ -124,13 +110,32 @@ export function regionLabel(region: string): string {
 
 const EMPTY = (): MonthCounts => ({ crashes: 0, reports: 0, fatal: 0, serious_plus: 0, injury: 0, vru: 0 });
 
-/** Monthly counts for a program, restricted to the crash scope that matches `region`. */
+export type CountOpts = {
+  /** Count only crashes with no in-vehicle operator for programs whose miles are rider-only (default true). */
+  riderOnly?: boolean;
+};
+
+const inScope = (c: Crash, scope: Scope): boolean => {
+  if (!('state' in scope)) return true;
+  if (normState(c.state) !== scope.state) return false;
+  if (scope.cities) return new Set(scope.cities.map((x) => normCity(x))).has(normCity(c.city));
+  return true;
+};
+
+/**
+ * Monthly counts for a program, restricted to the crash scope that matches `region`.
+ * Returns null when the region has no crash scope (not mapped): the caller must show "no rate: region not mapped", never 0.
+ * Counts come from counts.json when nothing needs filtering, otherwise from the program-level records
+ * (one row per program and incident, which add up to the same totals).
+ */
 export function scopedCounts(
   countRows: CountRow[],
   crashes: Crash[],
   program: string,
   region: string,
-): CountsByMonth {
+  opts: CountOpts = {},
+): CountsByMonth | null {
+  const riderOnly = (opts.riderOnly ?? true) && isRiderOnlyProgram(program);
   const out: CountsByMonth = {};
   const add = (month: string, d: Partial<MonthCounts>) => {
     const c = (out[month] ??= EMPTY());
@@ -138,21 +143,24 @@ export function scopedCounts(
   };
   const isEntity = program.startsWith('entity:');
   const scope = isEntity ? { all: true as const } : scopeOf(region);
-  if (!isEntity && scope && 'all' in scope) {
+  if (!scope) return null;
+  if (!isEntity && 'all' in scope && !riderOnly) {
     for (const r of countRows) {
       if (r.program === program) add(r.month, r);
     }
     return out;
   }
-  if (!scope) return out;
   const entity = isEntity ? program.slice(7) : null;
-  const cities = 'cities' in scope && scope.cities ? new Set(scope.cities.map((c) => c.toLowerCase())) : null;
+  const seen = new Set<string>(); // an entity can file in two programs for one incident: count the incident once
   for (const c of crashes) {
     if (!c.month) continue;
-    if (entity ? c.entity !== entity : c.program !== program) continue;
-    if ('state' in scope) {
-      if ((c.state ?? '').trim().toUpperCase() !== scope.state) continue;
-      if (cities && !cities.has((c.city ?? '').trim().toLowerCase())) continue;
+    if (entity ? !c.entities.includes(entity) : c.program !== program) continue;
+    if (!inScope(c, scope)) continue;
+    if (riderOnly && operatorClass(c.operator) !== 'driverless') continue;
+    if (entity) {
+      const key = c.month + '|' + c.incident_key;
+      if (seen.has(key)) continue;
+      seen.add(key);
     }
     const sev = c.severity;
     add(c.month, {
@@ -165,4 +173,32 @@ export function scopedCounts(
     });
   }
   return out;
+}
+
+export type Excluded = Record<string, { in_vehicle: number; other: number }>;
+
+/** Per month, the crashes left out of a rider-only program's numerator (in-vehicle operator, or an operator type that is not none/remote). */
+export function excludedByMonth(crashes: Crash[], program: string, region: string): Excluded {
+  const out: Excluded = {};
+  const scope = scopeOf(region);
+  if (!scope || !isRiderOnlyProgram(program)) return out;
+  for (const c of crashes) {
+    if (!c.month || c.program !== program || !inScope(c, scope)) continue;
+    const cls: OperatorClass = operatorClass(c.operator);
+    if (cls === 'driverless') continue;
+    const e = (out[c.month] ??= { in_vehicle: 0, other: 0 });
+    if (cls === 'in_vehicle') e.in_vehicle++;
+    else e.other++;
+  }
+  return out;
+}
+
+/** Sum of the excluded crashes over a set of months. */
+export function sumExcluded(ex: Excluded, months: string[]): { in_vehicle: number; other: number } {
+  const t = { in_vehicle: 0, other: 0 };
+  for (const m of new Set(months)) {
+    t.in_vehicle += ex[m]?.in_vehicle ?? 0;
+    t.other += ex[m]?.other ?? 0;
+  }
+  return t;
 }

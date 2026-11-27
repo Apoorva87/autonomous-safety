@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { learningCurve, monthlyPoints, quarterOf } from './learning';
+import { learningCurve, monthlyPoints, quarterOf, straddlesBreak } from './learning';
 import { ci95 } from './poisson';
 import type { CountsByMonth, ExposureRow } from './metrics';
 import { DEFAULT_SCENARIO } from '../state/scenario';
@@ -71,5 +71,20 @@ describe('learning curve', () => {
     const lc = learningCurve(monthly, { group: 'quarter', lastMonth: '2025-07', lag });
     expect(lc[lc.length - 1].recent).toBe(true);
     expect(lc[0].recent).toBe(false);
+  });
+  it('marks the period that straddles the 2025-06-16 rule change (Q2 by quarter, June by month), and only that one', () => {
+    const q = learningCurve(monthly, { group: 'quarter', lastMonth: '2026-06' });
+    expect(q.map((p) => [p.period, p.straddlesBreak])).toEqual([['2024-Q3', false], ['2024-Q4', false], ['2025-Q1', false], ['2025-Q2', true]]);
+    const m = learningCurve(monthly, { group: 'month', lastMonth: '2026-06' });
+    expect(m.filter((p) => p.straddlesBreak).map((p) => p.period)).toEqual(['2025-06']);
+    expect(straddlesBreak(['2025-05'])).toBe(false);
+    expect(straddlesBreak(['2025-07', '2025-08', '2025-09'])).toBe(false);
+  });
+  it('carries the unreliable-split flag instead of dropping it', () => {
+    const note = 'Derived: x. Note: adjacent disclosure segments differ by >3\u00d7; disclosures are rounded milestones, so the monthly split is unreliable.';
+    const flagged = exp.map((r) => (r.period === '2024-08' ? { ...r, method: note } : r));
+    const q = learningCurve(monthlyPoints(counts, flagged, DEFAULT_SCENARIO, opts), { group: 'quarter', lastMonth: '2026-06' });
+    expect(q[0].flag).toMatch(/unreliable/);
+    expect(q[1].flag).toBeNull();
   });
 });

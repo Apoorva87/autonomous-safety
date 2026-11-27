@@ -1,5 +1,6 @@
 import { ci95 } from './poisson';
-import { mpvFor, type Scenario } from '../state/scenario';
+import { mpvAssumed, type Scenario } from '../state/scenario';
+import { MILES_ONLY_REASON, regionRateBlock, unmappedReason } from './scope';
 
 // Rates are always scope-matched: the numerator (crashes) must cover the same region and the same
 // months as the denominator (exposure). Missing or zero exposure gives a null rate with a reason,
@@ -75,6 +76,12 @@ export type Point = {
   /** What the right-hand "volume" axis shows for this point (may exist even when the rate is null). */
   volume: number | null;
   volumeUnit: 'miles' | 'vehicles';
+  /** The denominator rests on an assumption the user set (miles per vehicle, or a US share of subscribers). */
+  assumption: boolean;
+  /** What `exposure` (the denominator) is measured in. Per-vehicle rates divide by vehicle-years, not vehicles. */
+  exposureUnit: 'miles' | 'vehicles' | 'vehicle-years';
+  /** Months of this point whose reports are still arriving (completeness below COMPLETE_SHARE): the count is probably low. */
+  incomplete: string[];
   notes: string[];
 };
 
@@ -83,6 +90,10 @@ export const BREAK_DATE = '2025-06-16';
 
 const KIND_RANK: Record<Kind, number> = { reported: 0, derived: 1, estimate: 2 };
 const worstKind = (ks: Kind[]): Kind => ks.reduce((a, b) => (KIND_RANK[b] > KIND_RANK[a] ? b : a), 'reported' as Kind);
+
+/** A month counts as complete once at least this share of its reports has usually been filed (lag.json CDF). */
+export const COMPLETE_SHARE = 0.9;
+export const INCOMPLETE_LABEL = 'recent months are incomplete (late reports expected)';
 
 export const monthIndex = (m: string) => Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7)) - 1;
 const monthsOfYear = (y: number) => Array.from({ length: 12 }, (_, i) => `${y}-${String(i + 1).padStart(2, '0')}`);
@@ -100,6 +111,14 @@ export function cdfAt(lag: LagCurve, days: number): number | null {
     }
   }
   return cdf[cdf.length - 1];
+}
+
+/** True when a month's reports are still arriving: its age's share of reports filed is below COMPLETE_SHARE (or it is under 2 months old without a lag curve). */
+export function monthIncomplete(lag: LagCurve, month: string, lastMonth: string): boolean {
+  const age = monthIndex(lastMonth) - monthIndex(month);
+  if (age < 0) return false;
+  const frac = cdfAt(lag, 30 * age);
+  return frac != null ? frac < COMPLETE_SHARE : age < 2;
 }
 
 /** Multiplier applied to a month's count because late reports have not arrived yet. */
@@ -190,8 +209,15 @@ export function metricNeeds(metric: Metric): 'miles' | 'vehicles' | 'both' | 'no
   return 'miles';
 }
 
-export function series(counts: CountsByMonth, exposure: ExposureRow[], scenario: Scenario, opts: SeriesOpts): Point[] {
+/**
+ * One Point per period. `counts` null means the region has no crash scope (not mapped): every rate is then null with a reason,
+ * never 0. Regions that can never give a rate (California DMV testing miles, worldwide) keep their exposure as an informational
+ * volume only.
+ */
+export function series(counts: CountsByMonth | null, exposure: ExposureRow[], scenario: Scenario, opts: SeriesOpts): Point[] {
   const { program, region, metric, grain, lastMonth } = opts;
+  const block = regionRateBlock(region);
+  const countsIn: CountsByMonth = counts ?? {};
   const measure: Measure = opts.measure ?? 'crashes';
   const lastYear = Number(lastMonth.slice(0, 4));
   const year = opts.year ?? lastYear;
@@ -237,12 +263,15 @@ export function series(counts: CountsByMonth, exposure: ExposureRow[], scenario:
     let veh: Resolved = NONE('');
     if (needs !== 'vehicles' && needs !== 'none') {
       miles = resolveRows(milesRows, p, 'sum', 'miles');
-      // No miles at all in this region for this program: derive from vehicles x an assumed miles/vehicle/year.
+      // No miles at all in this region for this program: derive from vehicles x an assumed miles/vehicle/year,
+      // but only when the user has set that assumption. There is no default, so nothing is derived from an invented number.
       if (milesRows.length === 0 && (vehRows.length > 0 || useSubs) && needs === 'miles') {
+        const mpv = mpvAssumed(scenario, program);
         const v = vehicles(p);
-        if (v.value == null) miles = v;
+        if (mpv == null) {
+          miles = NONE(`No miles are disclosed for ${program} in region ${region}. Set a miles-per-vehicle assumption in the scenario panel to see an assumption-based series.`);
+        } else if (v.value == null) miles = v;
         else {
-          const mpv = mpvFor(scenario, program);
           const months = v.months.length;
           miles = {
             value: v.value * mpv * (months / 12), kind: 'estimate', months: v.months, partial: v.partial,
@@ -278,14 +307,17 @@ export function series(counts: CountsByMonth, exposure: ExposureRow[], scenario:
 
     // Numerator over the months the exposure covers.
     const months = denom.value != null ? denom.months : p.monthsAll;
-    const [k, kAdj] = sumCount(counts, months, pick, weight);
-    const [kAll] = sumCount(counts, p.monthsAll, pick, () => 1);
+    const [k, kAdj] = sumCount(countsIn, months, pick, weight);
+    const [kAll] = sumCount(countsIn, p.monthsAll, pick, () => 1);
 
     const base: Point = {
       period: p.period, k: denom.value != null ? k : kAll, kAdj: denom.value != null ? kAdj : kAll * wf,
       exposure: null, exposureKind: denom.kind, rate: null, lo: null, hi: null,
       lowSample: true, scenario: false, months, partial: denom.partial,
       sourceIds: denom.sourceIds, method: denom.method, flag: denom.flag ?? null, volume: denom.value, volumeUnit, notes,
+      exposureUnit: volumeUnit,
+      assumption: denom.scenario,
+      incomplete: months.filter((m) => monthIncomplete(opts.lag, m, lastMonth)),
     };
     const numScenario =
       wf !== 1 || (scenario.countBy !== 'crashes' && measure === 'crashes') || (scenario.lagAdjust && months.some((m) => weight(m) !== wf));
@@ -299,11 +331,13 @@ export function series(counts: CountsByMonth, exposure: ExposureRow[], scenario:
 
     // Count metric: no denominator needed.
     if (metric === 'count') {
-      const [k0, k1] = sumCount(counts, p.monthsAll, pick, weight);
+      if (counts == null) { out.push(finish(unmappedReason(region))); continue; }
+      const [k0, k1] = sumCount(countsIn, p.monthsAll, pick, weight);
       const [lo0, hi0] = ci95(k0);
       const s = k0 > 0 ? k1 / k0 : wf;
       out.push({
         ...base, k: k0, kAdj: k1, months: p.monthsAll, exposure: denom.value, rate: k1, lo: lo0 * s, hi: hi0 * s,
+        incomplete: p.monthsAll.filter((m) => monthIncomplete(opts.lag, m, lastMonth)),
         lowSample: k0 < 10, exposureKind: denom.kind, reason: undefined,
         scenario: numScenario,
       });
@@ -312,7 +346,9 @@ export function series(counts: CountsByMonth, exposure: ExposureRow[], scenario:
 
     if (p.grain === 'year' && Number(p.period) < 2021) { out.push(finish('SGO reporting began 2021-07.')); continue; }
     if (p.grain === 'month' && p.period < SGO_START) { out.push(finish('SGO reporting began 2021-07.')); continue; }
-    if (region === 'global') { out.push(finish('Global-region exposure is never a US denominator: no US denominator.')); continue; }
+    if (block === 'global') { out.push(finish('Global-region exposure is never a US denominator: no US denominator.')); continue; }
+    if (block === 'miles-only') { out.push(finish(MILES_ONLY_REASON)); continue; }
+    if (block === 'unmapped' || counts == null) { out.push(finish(unmappedReason(region))); continue; }
     if (denom.value == null) { out.push(finish(denom.reason || 'No exposure disclosed.')); continue; }
     if (!(denom.value > 0)) { out.push(finish('Exposure is zero or missing: no denominator.')); continue; }
     if (p.grain === 'year' && p.period === '2021' && !denom.partial && denom.months.length === 12) {
@@ -328,8 +364,21 @@ export function series(counts: CountsByMonth, exposure: ExposureRow[], scenario:
     const lowSample = base.k < 10 || denom.kind === 'estimate' || denom.scenario;
     const pt: Point = { ...base, exposure: E, lowSample };
 
-    if (metric === 'per1k' || metric === 'perM' || metric === 'per10kVeh') {
-      const f = metric === 'per1k' ? 1e3 : metric === 'perM' ? 1e6 : 1e4;
+    if (metric === 'per10kVeh') {
+      // Crashes per 10,000 vehicle-YEARS: the denominator is vehicles x (months covered / 12) and the numerator was
+      // counted over those same months, so a partial year is not mistaken for a safer one.
+      const years = denom.months.length / 12;
+      const vy = E * years;
+      pt.exposure = vy;
+      pt.exposureUnit = 'vehicle-years';
+      pt.rate = (base.kAdj / vy) * 1e4;
+      pt.lo = (loK / vy) * 1e4;
+      pt.hi = (hiK / vy) * 1e4;
+      if (denom.partial || denom.months.length !== 12) {
+        pt.notes = [...pt.notes, `Partial period: ${denom.months.length} of 12 months, so the rate is crashes per vehicle-year over those months (not comparable with a full year without that in mind).`];
+      }
+    } else if (metric === 'per1k' || metric === 'perM') {
+      const f = metric === 'per1k' ? 1e3 : 1e6;
       pt.rate = (base.kAdj / E) * f;
       pt.lo = (loK / E) * f;
       pt.hi = (hiK / E) * f;
@@ -349,7 +398,9 @@ export function series(counts: CountsByMonth, exposure: ExposureRow[], scenario:
         pt.exposure = null;
         pt.reason = veh.reason || 'No active-vehicle count for this period.';
       } else {
-        pt.rate = E / v;
+        // Annualized: miles over the months covered, divided by the mean fleet, scaled to twelve months.
+        pt.rate = (E / v) * (12 / Math.max(1, denom.months.length));
+        pt.notes = [...pt.notes, denom.months.length === 12 ? 'Miles per vehicle per year.' : `Annualized from ${denom.months.length} month(s): miles per vehicle x 12 / ${denom.months.length}.`];
         pt.exposureKind = worstKind([denom.kind ?? 'reported', veh.kind ?? 'reported']);
         pt.lowSample = pt.exposureKind === 'estimate';
         pt.notes = [...pt.notes, 'Miles per vehicle is a ratio of two disclosures; no Poisson interval applies.'];
@@ -361,9 +412,9 @@ export function series(counts: CountsByMonth, exposure: ExposureRow[], scenario:
   return out;
 }
 
-/** Best-matching exposure region for a program: us, north_america, ca, then a city; global last. */
+/** Regions of a program ordered us, north_america, then cities, with miles-only (ca) and global after them. */
 export function regionsFor(exposure: ExposureRow[], program: string): string[] {
   const set = new Set(exposure.filter((r) => r.program === program && r.metric !== 'recall_units').map((r) => r.region));
-  const rank = (r: string) => (r === 'us' ? 0 : r === 'north_america' ? 1 : r === 'ca' ? 2 : r.startsWith('city:') ? 3 : 4);
+  const rank = (r: string) => (r === 'us' ? 0 : r === 'north_america' ? 1 : r.startsWith('city:') ? 2 : r === 'ca' ? 3 : 4);
   return [...set].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }

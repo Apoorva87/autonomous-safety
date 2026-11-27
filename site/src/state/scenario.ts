@@ -13,15 +13,20 @@ export type Scenario = {
   teslaDenominator: TeslaDenominator;
   /** US share of worldwide subscribers (assumption), used only when teslaDenominator is "subscribers". */
   subsUsShare: number;
-  /** Assumed miles per vehicle per year for programs with vehicles but no disclosed miles. */
+  /**
+   * Assumed miles per vehicle per year for programs with vehicles but no disclosed miles. A program appears here only
+   * after the user sets it: there is no default assumption, so no per-mile series is ever drawn from an invented number.
+   */
   estimates: Record<string, { milesPerVehicleYear: number }>;
   lagAdjust: boolean;
   /** 1 = the empirical reporting-lag curve; 0 = no adjustment; 2 = twice the empirical correction. */
   lagMultiplier: number;
   countBy: CountBy;
+  /** Count only crashes with no in-vehicle operator for programs whose miles are rider-only (default on). */
+  riderOnly: boolean;
 };
 
-/** Assumed miles per vehicle per year. These are assumptions, not disclosures. */
+/** Where the miles-per-vehicle slider starts when the user switches an assumption on. Not applied until then. */
 export const DEFAULT_MPV: Record<string, number> = {
   tesla_l2: 12000,
   tesla_robotaxi: 30000,
@@ -36,18 +41,21 @@ export const DEFAULT_SCENARIO: Scenario = {
   windowFactor: 1,
   teslaDenominator: 'fleet',
   subsUsShare: 0.31,
-  estimates: Object.fromEntries(Object.entries(DEFAULT_MPV).map(([k, v]) => [k, { milesPerVehicleYear: v }])),
+  estimates: {},
   lagAdjust: false,
   lagMultiplier: 1,
   countBy: 'crashes',
+  riderOnly: true,
 };
 
-export function mpvFor(s: Scenario, program: string): number {
-  return s.estimates[program]?.milesPerVehicleYear ?? DEFAULT_MPV[program] ?? 12000;
+/** The miles per vehicle per year the user set for a program, or null (no assumption: no derived miles). */
+export function mpvAssumed(s: Scenario, program: string): number | null {
+  return s.estimates[program]?.milesPerVehicleYear ?? null;
 }
 
-export function mpvIsDefault(s: Scenario, program: string): boolean {
-  return mpvFor(s, program) === (DEFAULT_MPV[program] ?? 12000);
+/** The value a slider shows: the user's assumption, else its starting point. */
+export function mpvFor(s: Scenario, program: string): number {
+  return mpvAssumed(s, program) ?? DEFAULT_MPV[program] ?? 12000;
 }
 
 /** True when the user changed any assumption that alters numbers. */
@@ -56,7 +64,9 @@ export function isNonDefault(s: Scenario): boolean {
     s.windowFactor !== 1 ||
     s.lagAdjust ||
     s.countBy !== 'crashes' ||
-    s.teslaDenominator !== 'fleet'
+    s.teslaDenominator !== 'fleet' ||
+    !s.riderOnly ||
+    Object.keys(s.estimates).length > 0
   );
 }
 
@@ -76,10 +86,11 @@ export function scenarioFromParams(p: URLSearchParams): Scenario {
     lagAdjust: p.get('lag') === '1',
     lagMultiplier: num(p.get('lm'), 1, 0, 2),
     countBy: p.get('cb') === 'reports' ? 'reports' : 'crashes',
+    riderOnly: p.get('ro') !== '0',
   };
   for (const prog of Object.keys(DEFAULT_MPV)) {
     const v = p.get('mpv_' + prog);
-    if (v != null) s.estimates[prog] = { milesPerVehicleYear: num(v, DEFAULT_MPV[prog], MPV_RANGE.min, MPV_RANGE.max) };
+    if (v != null && v !== '') s.estimates[prog] = { milesPerVehicleYear: num(v, DEFAULT_MPV[prog], MPV_RANGE.min, MPV_RANGE.max) };
   }
   return s;
 }
@@ -93,9 +104,11 @@ export function scenarioToParams(s: Scenario): Record<string, string | null> {
     lag: s.lagAdjust ? '1' : null,
     lm: s.lagMultiplier !== 1 ? String(s.lagMultiplier) : null,
     cb: s.countBy !== 'crashes' ? s.countBy : null,
+    ro: s.riderOnly ? null : '0',
   };
   for (const prog of Object.keys(DEFAULT_MPV)) {
-    out['mpv_' + prog] = mpvIsDefault(s, prog) ? null : String(mpvFor(s, prog));
+    const v = mpvAssumed(s, prog);
+    out['mpv_' + prog] = v == null ? null : String(v);
   }
   return out;
 }

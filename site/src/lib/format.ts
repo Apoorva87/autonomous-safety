@@ -3,9 +3,9 @@ import type { Metric, Point } from './metrics';
 export const METRICS: { id: Metric; label: string; axis: string; short: string }[] = [
   { id: 'perM', label: 'Crashes per million miles', axis: 'crashes per million miles', short: 'per M miles' },
   { id: 'per1k', label: 'Crashes per 1,000 miles', axis: 'crashes per 1,000 miles', short: 'per 1k miles' },
-  { id: 'per10kVeh', label: 'Crashes per 10,000 vehicles', axis: 'crashes per 10,000 active vehicles', short: 'per 10k vehicles' },
+  { id: 'per10kVeh', label: 'Crashes per 10,000 vehicle-years', axis: 'crashes per 10,000 vehicle-years', short: 'per 10k vehicle-yrs' },
   { id: 'milesPerCrash', label: 'Miles per crash', axis: 'miles per crash', short: 'miles / crash' },
-  { id: 'milesPerVehicle', label: 'Miles per vehicle', axis: 'miles per active vehicle', short: 'miles / vehicle' },
+  { id: 'milesPerVehicle', label: 'Miles per vehicle per year', axis: 'miles per active vehicle per year', short: 'miles / vehicle / yr' },
   { id: 'count', label: 'Crash count', axis: 'crashes', short: 'count' },
 ];
 export const metricInfo = (m: Metric) => METRICS.find((x) => x.id === m)!;

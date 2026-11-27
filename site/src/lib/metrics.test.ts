@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ci95 } from './poisson';
-import { series, lagFactor, methodFlag, type CountsByMonth, type ExposureRow } from './metrics';
+import { series, lagFactor, methodFlag, monthIncomplete, type CountsByMonth, type ExposureRow } from './metrics';
 import { DEFAULT_SCENARIO, type Scenario } from '../state/scenario';
 
 const mc = (n: number) => ({ crashes: n, reports: n + 1, fatal: 0, serious_plus: 0, injury: 0, vru: 0 });
@@ -90,16 +90,117 @@ describe('series', () => {
     const pts = series(counts, [], DEFAULT_SCENARIO, { ...base, firstYear: 2019, metric: 'perM' });
     expect(find(pts, '2019').reason).toMatch(/2021-07/);
   });
-  it('Tesla L2 derives miles from vehicles x assumed miles per vehicle and flags scenario', () => {
+  it('Tesla L2 gets no per-mile series by default: miles are derived only after the user sets an assumption', () => {
     const veh = [row({ program: 'tesla_l2', metric: 'active_vehicles', period: '2025', value: 1000, kind: 'estimate' })];
     const c: CountsByMonth = months(2025, 5);
     const o = { ...base, program: 'tesla_l2', metric: 'perM' as const };
-    const p = find(series(c, veh, DEFAULT_SCENARIO, o), '2025');
+    const none = find(series(c, veh, DEFAULT_SCENARIO, o), '2025');
+    expect(none.rate).toBeNull();
+    expect(none.exposure).toBeNull();
+    expect(none.reason).toMatch(/assumption/);
+    const set: Scenario = { ...DEFAULT_SCENARIO, estimates: { tesla_l2: { milesPerVehicleYear: 12000 } } };
+    const p = find(series(c, veh, set, o), '2025');
     expect(p.exposure).toBeCloseTo(1000 * 12000, 6);
     expect(p.scenario).toBe(true);
-    const v = find(series(c, veh, DEFAULT_SCENARIO, { ...o, metric: 'per10kVeh' }), '2025');
-    expect(v.rate).toBeCloseTo((60 / 1000) * 1e4, 9);
-    expect(v.scenario).toBe(false);
+    expect(p.notes.join(' ')).toMatch(/assumed miles per vehicle/);
+  });
+});
+
+describe('per-vehicle rates are per vehicle-YEAR', () => {
+  const veh = (period: string, value: number) => row({ program: 'tesla_l2', metric: 'active_vehicles', period, value, kind: 'estimate' });
+  const o = { ...base, program: 'tesla_l2', metric: 'per10kVeh' as const, lastMonth: '2026-10', firstYear: 2025 };
+  it('a full year divides by vehicles x 1', () => {
+    const p = find(series(months(2025, 5), [veh('2025', 1000)], DEFAULT_SCENARIO, o), '2025');
+    expect(p.k).toBe(60);
+    expect(p.exposure).toBeCloseTo(1000, 9);
+    expect(p.exposureUnit).toBe('vehicle-years');
+    expect(p.rate).toBeCloseTo((60 / 1000) * 1e4, 9);
+  });
+  it('a 10-month year divides by vehicles x 10/12 and is flagged partial, so it is not read as safer', () => {
+    const c: CountsByMonth = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`2026-${String(i + 1).padStart(2, '0')}`, mc(5)]));
+    const full = find(series(months(2025, 5), [veh('2025', 1000), veh('2026', 1000)], DEFAULT_SCENARIO, o), '2025');
+    const part = find(series(c, [veh('2025', 1000), veh('2026', 1000)], DEFAULT_SCENARIO, o), '2026');
+    expect(part.k).toBe(50);
+    expect(part.exposure).toBeCloseTo((1000 * 10) / 12, 9);
+    expect(part.rate).toBeCloseTo((50 / ((1000 * 10) / 12)) * 1e4, 9);
+    expect(part.rate).toBeCloseTo(full.rate!, 9); // same crash intensity: 5 per month either way
+    expect(part.partial).toBe(true);
+    expect(part.notes.join(' ')).toMatch(/Partial period: 10 of 12 months/);
+  });
+  it('monthly grain annualizes one month: vehicles x 1/12', () => {
+    const p = find(series({ '2025-03': mc(5) }, [veh('2025-03', 1200)], DEFAULT_SCENARIO, { ...o, grain: 'month', year: 2025 }), '2025-03');
+    expect(p.exposure).toBeCloseTo(100, 9);
+    expect(p.rate).toBeCloseTo((5 / 100) * 1e4, 9);
+  });
+  it('miles per vehicle is annualized over the months covered', () => {
+    const miles = Array.from({ length: 10 }, (_, i) => row({ program: 'tesla_l2', period: `2026-${String(i + 1).padStart(2, '0')}`, value: 500_000 }));
+    const c: CountsByMonth = {};
+    const p = find(series(c, [...miles, veh('2026', 1000)], DEFAULT_SCENARIO, { ...o, metric: 'milesPerVehicle', lastMonth: '2026-10' }), '2026');
+    // 2026 covers 10 months: 5,000,000 miles / 1000 vehicles = 5000 miles in 10 months = 6000 per year
+    expect(p.rate).toBeCloseTo(6000, 6);
+  });
+});
+
+describe('regions that can never give a rate', () => {
+  const ca = (o: Partial<ExposureRow>) => row({ region: 'ca', period: '2024', value: 2_906_137, ...o });
+  const counts: CountsByMonth = months(2024, 25);
+  const all = ['perM', 'per1k', 'per10kVeh', 'milesPerCrash', 'milesPerVehicle'] as const;
+  it('a ca region can never produce a rate point, whatever the metric or the exposure rows', () => {
+    const exp = [ca({}), ca({ metric: 'active_vehicles', value: 100 })];
+    for (const metric of all) {
+      for (const grain of ['year', 'month'] as const) {
+        const pts = series(counts, exp, DEFAULT_SCENARIO, { ...base, region: 'ca', metric, grain, year: 2024, lastMonth: '2024-12' });
+        for (const p of pts) {
+          expect(p.rate).toBeNull();
+          expect(p.lo).toBeNull();
+          expect(p.hi).toBeNull();
+          expect(p.lowerBound).toBeFalsy();
+        }
+      }
+    }
+  });
+  it('the ca miles stay visible as an informational volume with the reason', () => {
+    const p = find(series(counts, [ca({})], DEFAULT_SCENARIO, { ...base, region: 'ca', metric: 'perM', lastMonth: '2024-12' }), '2024');
+    expect(p.volume).toBe(2_906_137);
+    expect(p.reason).toMatch(/No comparable denominator/);
+    expect(p.reason).toMatch(/Dec.Nov/);
+  });
+  it('a region with no crash scope (null counts) gives no rate and a reason, never 0', () => {
+    const exp = [row({ region: 'city:miami', period: '2024', value: 1_000_000 })];
+    for (const metric of ['perM', 'milesPerCrash', 'count'] as const) {
+      const p = find(series(null, exp, DEFAULT_SCENARIO, { ...base, region: 'city:miami', metric, lastMonth: '2024-12' }), '2024');
+      expect(p.rate).toBeNull();
+      expect(p.reason).toMatch(/region not mapped/);
+    }
+  });
+  it('worldwide exposure is never a US denominator', () => {
+    const p = find(series(counts, [row({ region: 'global' })], DEFAULT_SCENARIO, { ...base, region: 'global', metric: 'perM', lastMonth: '2024-12' }), '2024');
+    expect(p.rate).toBeNull();
+  });
+});
+
+describe('incomplete recent months', () => {
+  const lag = { days: [0, 30, 60, 90], cdf: [0.5, 0.8, 0.95, 1] };
+  it('a month is incomplete while its lag CDF is below 90%', () => {
+    expect(monthIncomplete(lag, '2026-10', '2026-10')).toBe(true); // 0.5
+    expect(monthIncomplete(lag, '2026-09', '2026-10')).toBe(true); // 0.8
+    expect(monthIncomplete(lag, '2026-08', '2026-10')).toBe(false); // 0.95
+    expect(monthIncomplete(null, '2026-10', '2026-10')).toBe(true); // no curve: the last two months
+    expect(monthIncomplete(null, '2026-07', '2026-10')).toBe(false);
+  });
+  it('points list their incomplete months; the headline numbers are unchanged unless lag adjustment is on', () => {
+    const c: CountsByMonth = { '2026-08': mc(10), '2026-09': mc(10), '2026-10': mc(10) };
+    const exp = ['2026-08', '2026-09', '2026-10'].map((m) => row({ period: m, value: 1e6 }));
+    const o = { ...base, grain: 'month' as const, year: 2026, metric: 'perM' as const, lag };
+    const pts = series(c, exp, DEFAULT_SCENARIO, o);
+    expect(find(pts, '2026-08').incomplete).toEqual([]);
+    expect(find(pts, '2026-09').incomplete).toEqual(['2026-09']);
+    expect(find(pts, '2026-10').incomplete).toEqual(['2026-10']);
+    expect(find(pts, '2026-10').rate).toBeCloseTo(10, 9);
+    const adj = series(c, exp, { ...DEFAULT_SCENARIO, lagAdjust: true }, o);
+    expect(find(adj, '2026-10').rate).toBeCloseTo(20, 9);
+    const yr = find(series(c, [row({ period: '2026', value: 3e6 })], DEFAULT_SCENARIO, { ...o, grain: 'year', firstYear: 2026 }), '2026');
+    expect(yr.incomplete).toContain('2026-10');
   });
 });
 
