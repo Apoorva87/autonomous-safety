@@ -4,16 +4,23 @@ import { EChart } from '../EChart';
 import { poissonQuantile } from '../lib/poisson';
 import { esc, fmtInt, fmtNum } from '../lib/format';
 import { ui, type Mode } from '../theme';
+import { singleKindItems, type KindId } from '../lib/kinds';
 
 export type FunnelPoint = {
   program: string; label: string; color: string; period: string;
   rate: number; exposure: number; k: number; lowSample: boolean; scenario: boolean;
+  /** Kind group: the pooled reference never spans two kinds. */
+  kind: KindId | null;
+  /** The year includes months whose reports are still arriving. */
+  incomplete?: boolean;
 };
 
 /** Pooled-rate funnel with exact Poisson control limits: the standard way to compare units whose volumes differ widely. */
 export function FunnelPlot({
-  points, factor, rateLabel, exposureLabel, mode, refProgram,
+  points: allPoints, factor, rateLabel, exposureLabel, mode, refProgram,
 }: { points: FunnelPoint[]; factor: number; rateLabel: string; exposureLabel: string; mode: Mode; refProgram?: string }) {
+  // Level 2 and ADS programs have different reporting thresholds: a pooled rate and its limits only ever span one kind.
+  const points = useMemo(() => singleKindItems(allPoints), [allPoints]);
   const model = useMemo(() => {
     const refPts = refProgram && points.some((p) => p.program === refProgram) ? points.filter((p) => p.program === refProgram) : points;
     const sumK = refPts.reduce((a, p) => a + (p.rate * p.exposure) / factor, 0);
@@ -52,7 +59,7 @@ export function FunnelPlot({
           const p = q.data?.p as FunnelPoint | undefined;
           if (!p) return '';
           const where = p.rate > upper(p) ? 'above the 99.8% limit' : p.rate > upper95(p) ? 'above the 95% limit' : p.rate < lower95(p) ? 'below the 95% limit' : 'within the 95% limits';
-          return `<div style="max-width:260px;white-space:normal;font-size:12.5px"><b>${esc(p.label)} ${esc(p.period)}</b><br>${esc(fmtNum(p.rate))} ${esc(rateLabel)}<br>${esc(fmtInt(p.k))} crashes over ${esc(fmtNum(p.exposure))} ${esc(exposureLabel)}<br><i>${where}${p.lowSample ? '; low sample / estimate' : ''}${p.scenario ? '; scenario' : ''}</i></div>`;
+          return `<div style="max-width:260px;white-space:normal;font-size:12.5px"><b>${esc(p.label)} ${esc(p.period)}</b><br>${esc(fmtNum(p.rate))} ${esc(rateLabel)}<br>${esc(fmtInt(p.k))} crashes over ${esc(fmtNum(p.exposure))} ${esc(exposureLabel)}<br><i>${where}${p.lowSample ? '; low sample / estimate' : ''}${p.scenario ? '; scenario' : ''}${p.incomplete ? '; includes recent months with late reports expected' : ''}</i></div>`;
         },
       },
       xAxis: {

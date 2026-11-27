@@ -92,10 +92,13 @@ export function SourceBadge({
   );
 }
 
-export function ScenarioBadge({ title = 'This number depends on an assumption you can change in the scenario panel' }: { title?: string }) {
+export function ScenarioBadge({
+  title = 'This number depends on an assumption you can change in the scenario panel',
+  label = 'scenario',
+}: { title?: string; label?: string }) {
   return (
     <span className="scenario-badge" title={title}>
-      scenario
+      {label}
     </span>
   );
 }

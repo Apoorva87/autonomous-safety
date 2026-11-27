@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { EChartsCoreOption } from 'echarts/core';
 import { EChart } from '../EChart';
 import type { Grain, Point } from '../lib/metrics';
-import { BREAK_DATE } from '../lib/metrics';
+import { BREAK_DATE, INCOMPLETE_LABEL } from '../lib/metrics';
 import { esc, fmtCI, fmtInt, fmtNum, fmtRateText, hatchPattern } from '../lib/format';
 import type { EventRow } from '../data/rates';
 import { ui, type Mode } from '../theme';
@@ -49,6 +49,7 @@ export function DualAxisChart({
   year,
   metricAxis,
   volumeUnit,
+  volumeNote,
   events,
   mode,
   ariaLabel,
@@ -61,6 +62,8 @@ export function DualAxisChart({
   year: number;
   metricAxis: string;
   volumeUnit: 'miles' | 'vehicles';
+  /** Replaces the right-axis name, e.g. when the exposure is informational only. */
+  volumeNote?: string;
   events: EventRow[] | null;
   mode: Mode;
   ariaLabel: string;
@@ -121,17 +124,36 @@ export function DualAxisChart({
           };
         },
       });
+      // Recent months whose reports are still arriving are drawn dotted with hollow markers: the line from the last
+      // complete point to them is dotted, never solid.
+      const late = (p: Point) => p.incomplete.length > 0;
+      const solid = s.points.map((p) => (late(p) ? null : p));
       all.push({
         id: `rate:${s.key}`, name: s.label, type: 'line', yAxisIndex: 0, z: 4, silent: true,
         tooltip: { show: false },
         connectNulls: false, symbol: 'circle', symbolSize: 9,
         lineStyle: { color: s.color, width: 2 }, itemStyle: { color: s.color },
-        data: s.points.map((p) => ({
-          value: [axis.xOf(p.period), p.rate],
+        data: solid.map((p, i) => ({
+          value: [axis.xOf(s.points[i].period), p ? p.rate : null],
           // hollow marker = low sample / estimate
-          itemStyle: p.lowSample ? { color: t.surface, borderColor: s.color, borderWidth: 2 } : { color: s.color, borderColor: t.surface, borderWidth: 1.5 },
+          itemStyle: p?.lowSample ? { color: t.surface, borderColor: s.color, borderWidth: 2 } : { color: s.color, borderColor: t.surface, borderWidth: 1.5 },
         })),
       });
+      const firstLate = s.points.findIndex(late);
+      if (firstLate >= 0) {
+        const from = Math.max(0, firstLate - 1);
+        const tail = s.points.slice(from).filter((p) => p.rate != null);
+        all.push({
+          id: `late:${s.key}`, name: `${s.label} recent months`, type: 'line', yAxisIndex: 0, z: 4, silent: true, tooltip: { show: false },
+          symbol: 'circle', symbolSize: 9, lineStyle: { color: s.color, width: 2, type: [2, 3] },
+          data: tail.map((p) => ({
+            value: [axis.xOf(p.period), p.rate],
+            itemStyle: late(p)
+              ? { color: t.surface, borderColor: s.color, borderWidth: 2, borderType: 'dotted' }
+              : { color: s.color, borderColor: t.surface, borderWidth: 1.5 },
+          })),
+        });
+      }
       // Invisible series so the left axis scale includes the upper interval limits.
       all.push({
         id: `scale:${s.key}`, name: `${s.label} scale`, type: 'line', yAxisIndex: 0, silent: true, tooltip: { show: false },
@@ -170,6 +192,23 @@ export function DualAxisChart({
       }
     }
 
+    // Hatched columns behind periods that include months whose reports are still arriving.
+    const lateX = [...new Set(series.flatMap((sr) => sr.points.filter((p) => p.incomplete.length > 0).map((p) => p.period)))];
+    if (lateX.length) {
+      const hatchGrey = hatchPattern(t.faint);
+      all.push({
+        id: 'incomplete', name: INCOMPLETE_LABEL, type: 'custom', yAxisIndex: 0, z: 0, silent: true, tooltip: { show: false },
+        data: lateX.map((p) => [axis.xOf(p)]),
+        renderItem: (params: any, api: any) => {
+          const x = api.value(0);
+          const [x0] = api.coord([x - 0.5, 0]);
+          const [x1] = api.coord([x + 0.5, 0]);
+          const cs = params.coordSys;
+          return { type: 'rect', shape: { x: x0, y: cs.y, width: x1 - x0, height: cs.height }, style: { fill: hatchGrey, opacity: 0.22 } };
+        },
+      });
+    }
+
     // Transparent hit areas: one per period, tooltip lists every selected program for that period.
     all.push({
       id: 'hit', name: 'periods', type: 'custom', yAxisIndex: 0, z: 10,
@@ -191,8 +230,9 @@ export function DualAxisChart({
             if (!pt) return '';
             const tags: string[] = [];
             if (pt.lowSample && pt.rate != null) tags.push('low sample / estimate (hatched)');
-            if (pt.scenario) tags.push('scenario');
+            if (pt.scenario) tags.push(pt.assumption ? 'your assumption (not a disclosure)' : 'scenario');
             if (pt.partial && pt.volume != null) tags.push('partial period');
+            if (pt.incomplete.length) tags.push(INCOMPLETE_LABEL + ': ' + pt.incomplete.join(', '));
             if (pt.flag) tags.push('\u2691 unreliable monthly exposure: ' + pt.flag);
             const body =
               pt.rate == null && !pt.lowerBound
@@ -201,7 +241,7 @@ export function DualAxisChart({
             return (
               `<div style="margin-top:4px"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${s.color};margin-right:5px"></span><b>${esc(s.label)}</b><br>` +
               `${body}<br><span>${esc(fmtInt(pt.k))} crashes counted${pt.kAdj !== pt.k ? ` (${esc(fmtNum(pt.kAdj))} adjusted)` : ''}; ` +
-              `${pt.exposure != null ? `${esc(fmtNum(pt.exposure))} ${pt.volumeUnit} (${esc(pt.exposureKind ?? '')})` : pt.volume != null ? `${esc(fmtNum(pt.volume))} ${pt.volumeUnit} shown, not used as denominator` : 'no exposure'}</span>` +
+              `${pt.exposure != null ? `${esc(fmtNum(pt.exposure))} ${pt.exposureUnit} (${esc(pt.exposureKind ?? '')})` : pt.volume != null ? `${esc(fmtNum(pt.volume))} ${pt.volumeUnit} shown, not used as denominator` : 'no exposure'}</span>` +
               `${tags.length ? `<br><i>${esc(tags.join('; '))}</i>` : ''}</div>`
             );
           });
@@ -259,14 +299,14 @@ export function DualAxisChart({
           axisLabel: { color: t.muted, formatter: (v: number) => fmtNum(v) }, splitLine: { lineStyle: { color: t.grid } },
         },
         {
-          type: 'value', min: 0, position: 'right', name: narrow ? '' : volumeUnit === 'miles' ? 'exposure: miles' : 'exposure: active vehicles',
+          type: 'value', min: 0, position: 'right', name: narrow ? '' : volumeNote ?? (volumeUnit === 'miles' ? 'exposure: miles' : 'exposure: active vehicles'),
           nameTextStyle: { color: t.muted, align: 'right', fontSize: 11 },
           axisLabel: { color: t.muted, formatter: (v: number) => fmtNum(v) }, splitLine: { show: false },
         },
       ],
       series: all,
     } as EChartsCoreOption;
-  }, [series, grain, firstYear, lastYear, year, metricAxis, volumeUnit, events, mode, narrow]);
+  }, [series, grain, firstYear, lastYear, year, metricAxis, volumeUnit, volumeNote, events, mode, narrow]);
 
   return <EChart option={option} height={narrow ? 340 : height} label={ariaLabel} />;
 }

@@ -11,3 +11,17 @@ export function FlagNote({ note, period }: { note: string; period?: string }) {
 }
 
 export const FLAG_PATH = 'path://M0,0L1.6,0L1.6,13L0,13Z M1.6,0.6L11,0.6L8.6,3.8L11,7L1.6,7Z';
+
+/** Marks a number that includes months whose reports are still arriving (lag.json: under 90% of reports usually filed). */
+export function IncompleteMark({ months }: { months: string[] }) {
+  const text = `Recent months are incomplete (late reports expected): ${months.join(', ')}. The count is probably too low.`;
+  return (
+    <span className="incomplete-mark" role="img" tabIndex={0} aria-label={text} title={text}>
+      <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+        <circle cx="6" cy="6" r="5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeDasharray="2 2" />
+        <path d="M6 3v3.2l2 1.2" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      </svg>
+      late reports
+    </span>
+  );
+}

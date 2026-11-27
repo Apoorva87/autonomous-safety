@@ -1,4 +1,4 @@
-import { DEFAULT_MPV, MPV_RANGE, isNonDefault, mpvFor, type Scenario } from '../state/scenario';
+import { DEFAULT_MPV, MPV_RANGE, isNonDefault, mpvAssumed, mpvFor, type Scenario } from '../state/scenario';
 import { PROGRAM_BY_KEY } from '../theme';
 import { ScenarioBadge } from './SourceBadge';
 
@@ -13,7 +13,7 @@ export function ScenarioPanel({
   mpvPrograms: string[];
   teslaSelected: boolean;
 }) {
-  const nonDefault = isNonDefault(scenario) || mpvPrograms.some((p) => mpvFor(scenario, p) !== (DEFAULT_MPV[p] ?? 12000));
+  const nonDefault = isNonDefault(scenario);
   return (
     <section className="scenario-panel" aria-labelledby="scenario-h">
       <div className="scenario-head">
@@ -36,7 +36,7 @@ export function ScenarioPanel({
             onChange={(e) => update({ windowFactor: Number(e.target.value) })}
           />
           <p className="small">
-            Tesla counts crashes within 5 seconds of disengagement; NHTSA SGO uses 30 seconds. 1.00 = SGO counts exactly as filed.
+            Tesla's Vehicle Safety Report counts crashes with Autopilot active, or deactivated, within 5 seconds before impact; SGO reports (ADS and Level 2 alike) use a 30-second engagement window. 1.00 = SGO counts exactly as filed.
             The data have no engagement timing, so any other value is only an assumption about how many SGO crashes a 5-second rule would keep.
           </p>
         </div>
@@ -93,22 +93,57 @@ export function ScenarioPanel({
           </fieldset>
         )}
 
-        {mpvPrograms.map((p) => (
-          <div className="sc-field" key={p}>
-            <label htmlFor={`mpv-${p}`}>
-              {PROGRAM_BY_KEY[p]?.short ?? p}: miles per vehicle per year <b>{mpvFor(scenario, p).toLocaleString('en-US')}</b>{' '}
-              <em>(your assumption)</em>
-            </label>
-            <input
-              id={`mpv-${p}`} type="range" {...MPV_RANGE} value={mpvFor(scenario, p)}
-              onChange={(e) => update({ estimates: { ...scenario.estimates, [p]: { milesPerVehicleYear: Number(e.target.value) } } })}
-            />
-            <p className="small">
-              No miles are disclosed for this program, so miles are vehicles x this assumption. Default {(DEFAULT_MPV[p] ?? 12000).toLocaleString('en-US')} is an
-              assumption, not a disclosure.
-            </p>
-          </div>
-        ))}
+        <div className="sc-field">
+          <label className="check">
+            <input type="checkbox" checked={scenario.riderOnly} onChange={(e) => update({ riderOnly: e.target.checked })} />
+            Rider-only numerator (default on)
+          </label>
+          <p className="small">
+            Waymo, Cruise, Zoox and Tesla Robotaxi miles are rider-only (no human driver on board). With this on, only crashes whose operator type is none or
+            remote are counted for them; crashes with an in-vehicle operator are left out and their number is shown. Turn it off to count every filed crash against the same miles.
+          </p>
+        </div>
+
+        {mpvPrograms.map((p) => {
+          const set = mpvAssumed(scenario, p);
+          const name = PROGRAM_BY_KEY[p]?.short ?? p;
+          return (
+            <div className="sc-field" key={p}>
+              <label className="check">
+                <input
+                  type="checkbox" checked={set != null}
+                  onChange={(e) => {
+                    const next = { ...scenario.estimates };
+                    if (e.target.checked) next[p] = { milesPerVehicleYear: mpvFor(scenario, p) };
+                    else delete next[p];
+                    update({ estimates: next });
+                  }}
+                />
+                {name}: assume miles per vehicle (off by default)
+              </label>
+              {set != null ? (
+                <>
+                  <label htmlFor={`mpv-${p}`}>
+                    Miles per vehicle per year <b>{set.toLocaleString('en-US')}</b> <em>(your assumption)</em> <ScenarioBadge />
+                  </label>
+                  <input
+                    id={`mpv-${p}`} type="range" {...MPV_RANGE} value={set}
+                    onChange={(e) => update({ estimates: { ...scenario.estimates, [p]: { milesPerVehicleYear: Number(e.target.value) } } })}
+                  />
+                  <p className="small">
+                    Miles are vehicles x this assumption x the months covered. No miles are disclosed for {name}, so this is not a measurement; every number built on it
+                    is badged and left out of the funnel plot.
+                  </p>
+                </>
+              ) : (
+                <p className="small">
+                  No miles are disclosed for {name}, so there is no per-mile series. Switch this on to see one built from an assumption you choose (a suggested start is{' '}
+                  {(DEFAULT_MPV[p] ?? 12000).toLocaleString('en-US')} miles per vehicle per year; that is not a disclosure).
+                </p>
+              )}
+            </div>
+          );
+        })}
       </div>
     </section>
   );

@@ -416,3 +416,14 @@ table.coverage th, table.coverage td { padding: 4px 6px; font-size: 12px; }
 
 .scroll-hint { display: none; margin: 0 0 4px; }
 @media (max-width: 860px) { .scroll-hint { display: block; } }
+
+/* Level 2 vs ADS caveat, incomplete recent months, rider-only and data-health notes */
+.callout.kind-caveat { margin: 10px 0; padding: 8px 14px; border-left-color: #b3361a; max-width: none; }
+.callout.health-warn { border-left-color: #b3361a; background: var(--surface); }
+.incomplete-mark { display: inline-flex; align-items: center; gap: 3px; border: 1px dotted var(--muted); color: var(--muted); border-radius: 4px; font-size: 11px; padding: 0 5px; margin: 0 4px; cursor: help; background: repeating-linear-gradient(135deg, transparent 0 4px, var(--grid) 4px 6px); }
+.mk-late { display: inline-block; width: 18px; height: 0; border-top: 2px dotted var(--muted); vertical-align: middle; }
+.mk-late-col { display: inline-block; width: 14px; height: 10px; vertical-align: middle; border: 1px solid var(--rule); background: repeating-linear-gradient(135deg, var(--faint) 0 1.5px, transparent 1.5px 4px); }
+.mk-straddle { display: inline-block; width: 10px; height: 10px; vertical-align: middle; transform: rotate(45deg); border: 2px solid var(--muted); background: transparent; }
+.prog-group.kind-ads legend, .prog-group.kind-l2 legend { font-weight: 600; }
+.small-block { font-size: 13px; color: var(--muted); margin: 6px 0; max-width: 90ch; }
+.cov-info { background: repeating-linear-gradient(135deg, transparent 0 5px, var(--grid) 5px 7px); color: var(--muted); font-style: italic; font-size: 11px; }
