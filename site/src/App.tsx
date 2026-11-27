@@ -15,11 +15,13 @@ const Timeline = lazy(() => import('./Timeline').then((m) => ({ default: m.Timel
 const Learning = lazy(() => import('./Learning').then((m) => ({ default: m.Learning })));
 const Claims = lazy(() => import('./Claims').then((m) => ({ default: m.Claims })));
 const Responsibility = lazy(() => import('./Responsibility').then((m) => ({ default: m.Responsibility })));
+const Improvement = lazy(() => import('./Improvement').then((m) => ({ default: m.Improvement })));
 
 // Tab order: overview and rates first, the compound views next, the raw explorer and reference tabs last.
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'rates', label: 'Rates' },
+  { id: 'improving', label: 'Improving?' },
   { id: 'impact', label: 'Impact map' },
   { id: 'cities', label: 'Cities' },
   { id: 'timeline', label: 'Timeline' },
@@ -91,7 +93,8 @@ export function App() {
       </header>
 
       <div className="banner" role="note">
-        <strong>Preview.</strong> Counts are as filed with NHTSA. Rates (Rates tab) are drawn only where a sourced denominator exists, always with a 95% interval; many denominators are estimates.
+        <strong>NHTSA reporting rules changed on 2025-06-16.</strong> Minor crashes stopped being reportable, so counts of all reported crashes drop at that date
+        whatever happened on the road. Time charts therefore count <b>threshold-robust crashes</b> by default (reportable under both rules); see <a href="#improving">Improving?</a>.
       </div>
 
       <div className={`tabs-wrap${edges.left ? ' fade-left' : ''}${edges.right ? ' fade-right' : ''}`}>
@@ -115,6 +118,7 @@ export function App() {
         {data && tab === 'overview' && <Overview data={data} mode={mode} />}
         {data && tab === 'rates' && <Rates data={data} mode={mode} />}
         <Suspense fallback={<p className="loading">Loading view…</p>}>
+          {data && tab === 'improving' && <Improvement data={data} mode={mode} />}
           {data && tab === 'impact' && <Impact data={data} mode={mode} />}
           {data && tab === 'cities' && <Cities data={data} mode={mode} />}
           {data && tab === 'timeline' && <Timeline data={data} mode={mode} />}

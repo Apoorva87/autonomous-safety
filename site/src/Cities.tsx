@@ -17,6 +17,7 @@ import { RateBars, type BarItem } from './components/RateBars';
 import { Spark, type SparkPt } from './components/Spark';
 import { LowSampleMark, ScenarioBadge, SourceBadge, SourcesCtx } from './components/SourceBadge';
 import { SourceNote } from './EChart';
+import { NumeratorToggle, RegimeBadge, RobustNote, numeratorFrom } from './components/Regime';
 
 export function Cities({ data, mode }: { data: Data; mode: Mode }) {
   const { rates, error } = useRatesData();
@@ -59,14 +60,36 @@ function CitiesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
     for (const r of rates.exposure) if (r.program === prog && r.region.startsWith('city:') && r.metric === 'miles') ys.add(r.period.slice(0, 4));
     return [...ys].sort();
   }, [rates, prog]);
-  const period = years.includes(params.get('cpd') ?? '') ? (params.get('cpd') as string) : 'all';
+  // Periods never mix the two reporting regimes in one ranking: after the change (default), before it, the latest window
+  // every active service area covers, or a single year (2025 spans the change and says so).
+  const commonMonths = useMemo(() => {
+    const byRegion = new Map<string, Set<string>>();
+    for (const r of rates.exposure) {
+      if (r.program !== prog || !r.region.startsWith('city:') || r.metric !== 'miles' || r.period.length !== 7) continue;
+      (byRegion.get(r.region) ?? byRegion.set(r.region, new Set()).get(r.region)!).add(r.period);
+    }
+    const last = [...byRegion.values()].flatMap((s) => [...s]).sort().pop();
+    if (!last) return [];
+    const active = [...byRegion.values()].filter((s) => s.has(last));
+    const common = [...active[0]].filter((m) => m > '2025-06' && active.every((s) => s.has(m))).sort();
+    return common.slice(-6);
+  }, [rates, prog]);
+  const PERIODS = ['post', 'pre', 'common'];
+  const rawPeriod = params.get('cpd') ?? '';
+  const period = PERIODS.includes(rawPeriod) || years.includes(rawPeriod) ? rawPeriod : 'post';
+  const inWindow = (m: string) =>
+    period === 'post' ? m > '2025-06' : period === 'pre' ? m < '2025-06' : period === 'common' ? commonMonths.includes(m) : m.startsWith(period);
+  const periodText =
+    period === 'post' ? 'after the 2025-06-16 rule change (2025-07 on)' : period === 'pre' ? 'before the 2025-06-16 rule change (to 2025-05)'
+      : period === 'common' ? `latest common window, ${commonMonths[0]} to ${commonMonths[commonMonths.length - 1]}` : period === '2025' ? '2025 (spans the rule change)' : period;
+  const numerator = numeratorFrom(params);
 
   const rows: Row[] = useMemo(
     () =>
       regions.map((region) => {
         const counts = scopedCounts(rates.countRows, data.crashes, prog, region, { riderOnly: scenario.riderOnly });
-        const monthly = monthlyPoints(counts, rates.exposure, scenario, { program: prog, region, lastMonth: rates.lastMonth, lag: rates.lag[prog] });
-        const inPeriod = period === 'all' ? monthly : monthly.filter((p) => p.period.startsWith(period));
+        const monthly = monthlyPoints(counts, rates.exposure, scenario, { program: prog, region, lastMonth: rates.lastMonth, lag: rates.lag[prog], measure: numerator });
+        const inPeriod = monthly.filter((p) => inWindow(p.period));
         const quarters = learningCurve(monthly, { group: 'quarter', lastMonth: rates.lastMonth, lag: rates.lag[prog] }).map((q) => ({
           period: q.period, t: dateMs(q.months[1] + '-15'), rate: q.rate, lo: q.lo, hi: q.hi, lowSample: q.lowSample, k: q.k, recent: q.recent,
         }));
@@ -76,7 +99,7 @@ function CitiesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
           : null;
         return { region, label: CITY_REGION_BY_KEY[region]?.label ?? region, pooled, monthly: inPeriod, quarters, unmapped: regionRateBlock(region) === 'unmapped', excluded };
       }),
-    [regions, rates, data.crashes, prog, scenario, period],
+    [regions, rates, data.crashes, prog, scenario, period, numerator, commonMonths.join()],
   );
 
   const items: BarItem[] = rows.map((r) => ({
@@ -88,7 +111,7 @@ function CitiesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
     hi: r.pooled?.hi ?? null,
     lowSample: r.pooled?.lowSample ?? true,
     color,
-    reason: r.unmapped ? 'No rate: region not mapped (no crash scope is defined for this area).' : `No ${info.short} miles disclosed for ${r.label} in ${period === 'all' ? 'any month' : period}.`,
+    reason: r.unmapped ? 'No rate: region not mapped (no crash scope is defined for this area).' : `No ${info.short} miles disclosed for ${r.label} ${period === 'post' || period === 'pre' ? periodText : 'in ' + periodText}.`,
   }));
   const shown = rows.filter((r) => r.pooled);
   const anyScenario = rows.some((r) => r.pooled?.scenario);
@@ -152,17 +175,20 @@ function CitiesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
           )}
           <label className="field">
             Period
-            <select value={period} onChange={(e) => setQuery({ cpd: e.target.value === 'all' ? null : e.target.value })}>
-              <option value="all">Every month with miles (differs by city)</option>
-              {years.map((y) => <option key={y} value={y}>{y}{y === rates.lastMonth.slice(0, 4) ? ' (to ' + rates.lastMonth + ')' : ''}</option>)}
+            <select value={period} onChange={(e) => setQuery({ cpd: e.target.value === 'post' ? null : e.target.value })}>
+              <option value="post">After the 2025-06-16 rule change (2025-07 on)</option>
+              <option value="pre">Before the rule change (to 2025-05)</option>
+              {commonMonths.length > 0 && <option value="common">Latest common window ({commonMonths[0]} to {commonMonths[commonMonths.length - 1]})</option>}
+              {years.map((y) => <option key={y} value={y}>{y}{y === '2025' ? ' (spans the rule change)' : ''}{y === rates.lastMonth.slice(0, 4) ? ' (to ' + rates.lastMonth + ')' : ''}</option>)}
             </select>
           </label>
+          <NumeratorToggle value={numerator} />
         </div>
 
         <figure className="panel rates-chart">
           <figcaption>
             <span className="panel-title">
-              {info.short} crashes per million miles by service area, {period === 'all' ? 'all months with miles' : period}
+              {info.short} {numerator === 'robust' ? 'threshold-robust crashes' : 'crashes (all reportable)'} per million miles by service area, {periodText}
               {anyScenario && <> <ScenarioBadge /></>}
             </span>
             <span className="panel-total">
@@ -171,11 +197,12 @@ function CitiesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
             </span>
           </figcaption>
           <RateBars items={items} unit="crashes per million miles" ariaLabel={`${info.short} crashes per million miles by city`} />
-          {period === 'all' && (
-            <p className="small">
-              Cities cover different spans (the number of months with miles follows each name), so with "every month" the bars are not like for like; pick a single year to compare cities over the same months.
-            </p>
-          )}
+          <p className="small">
+            Cities are ranked within one reporting regime only: a city whose miles are mostly from before 2025-06-16 would otherwise look worse simply because minor crashes were still reportable then.
+            Cities can still cover different months inside a regime (the months follow each name); the latest common window compares every active service area over the same months.
+            {period === '2025' && ' 2025 spans the rule change, so its bars mix both regimes: read them with care.'}
+          </p>
+          {numerator === 'robust' && <RobustNote kind="ads" />}
           <p className="small">
             San Francisco (city) and the San Francisco Bay Area are overlapping geographies Waymo reported in different periods; they are never added together.
             Hover a bar for its interval. <LowSampleMark /> marks estimated miles or a low count.
@@ -183,6 +210,7 @@ function CitiesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
         </figure>
 
         <h3>Each service area over time (quarterly)</h3>
+        <p><RegimeBadge robust={numerator === 'robust'} /></p>
         <p className="small">Same axes in every panel. Hollow markers: estimated miles or fewer than 10 crashes. Dashed line: the 2025-06-16 NHTSA rule change. Bands above the axis are clipped.</p>
         <div className="spark-grid">
           {rows.map((r) => (

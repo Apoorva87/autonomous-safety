@@ -17,10 +17,12 @@ import { FlagNote, IncompleteMark } from './components/FlagNote';
 import { KindCaveat } from './components/KindCaveat';
 import { LowSampleMark, ScenarioBadge, SourceBadge, SourcesCtx } from './components/SourceBadge';
 import { SourceNote } from './EChart';
+import { ALL_LABEL, ROBUST_LABEL, RegimeBadge, RobustNote } from './components/Regime';
 
 const ALL_PROGRAMS = KIND_GROUPS.flatMap((g) => g.programs);
 const MEASURES: { id: Measure; label: string }[] = [
-  { id: 'crashes', label: 'All crashes' },
+  { id: 'robust', label: ROBUST_LABEL },
+  { id: 'crashes', label: ALL_LABEL },
   { id: 'injury', label: 'Any injury' },
   { id: 'serious_plus', label: 'Serious or fatal injury' },
   { id: 'fatal', label: 'Fatal' },
@@ -114,7 +116,8 @@ function RatesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mode
   const grain: Grain = params.get('g') === 'm' ? 'month' : 'year';
   const year = Math.min(lastYear, Math.max(2021, Number(params.get('y')) || lastYear));
   const showEvents = params.get('ev') !== '0';
-  const measure = (MEASURES.find((m) => m.id === params.get('num'))?.id ?? 'crashes') as Measure;
+  // Default numerator: threshold-robust crashes (comparable across the 2025-06-16 rule change).
+  const measure = (MEASURES.find((m) => m.id === params.get('num'))?.id ?? 'robust') as Measure;
   const refProg = params.get('ref') ?? '';
   const keys = [...picked, ...(entity ? [`entity:${entity}`] : [])];
 
@@ -222,11 +225,11 @@ function RatesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mode
   // ---- table + CSV ----
   const tableRows = computed.flatMap((c) => c.points.map((p) => ({ c, p })));
   const downloadCsv = () => {
-    const head = ['program', 'region', 'metric', 'period', 'crashes_raw', 'crashes_adjusted', 'exposure', 'exposure_unit', 'exposure_kind', 'rate', 'ci95_lo', 'ci95_hi', 'low_sample', 'scenario', 'partial_period', 'months_used', 'incomplete_months', 'rider_only_numerator', 'reason', 'source_ids', 'method'];
+    const head = ['program', 'region', 'metric', 'numerator', 'period', 'rules', 'crashes_raw', 'crashes_adjusted', 'exposure', 'exposure_unit', 'exposure_kind', 'rate', 'ci95_lo', 'ci95_hi', 'low_sample', 'scenario', 'partial_period', 'months_used', 'incomplete_months', 'rider_only_numerator', 'reason', 'source_ids', 'method'];
     const lines = [head.join(',')];
     for (const { c, p } of tableRows)
       lines.push(
-        [c.prog, c.region, metric, p.period, p.k, p.kAdj, p.exposure ?? '', p.exposure != null ? p.exposureUnit : '', p.exposureKind ?? '', p.rate ?? '', p.lo ?? '', p.hi ?? '', p.lowSample, p.scenario, p.partial, p.months.length, p.incomplete.join(';'), c.excluded != null, p.reason ?? '', p.sourceIds.join(';'), p.method]
+        [c.prog, c.region, metric, measure, p.period, regimeText(p.period), p.k, p.kAdj, p.exposure ?? '', p.exposure != null ? p.exposureUnit : '', p.exposureKind ?? '', p.rate ?? '', p.lo ?? '', p.hi ?? '', p.lowSample, p.scenario, p.partial, p.months.length, p.incomplete.join(';'), c.excluded != null, p.reason ?? '', p.sourceIds.join(';'), p.method]
           .map(csvCell)
           .join(','),
       );
@@ -302,7 +305,7 @@ function RatesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mode
           </label>
           <label className="field">
             Counting
-            <select value={measure} onChange={(e) => setQuery({ num: e.target.value === 'crashes' ? null : e.target.value })}>
+            <select value={measure} onChange={(e) => setQuery({ num: e.target.value === 'robust' ? null : e.target.value })}>
               {MEASURES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
             </select>
           </label>
@@ -363,13 +366,14 @@ function RatesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mode
             <figure className="panel rates-chart">
               <figcaption>
                 <span className="panel-title">
-                  {info.label}, {measure === 'crashes' ? 'all crashes' : MEASURES.find((m) => m.id === measure)!.label.toLowerCase()} · {pageKind ? kindLabel(pageKind) : 'selected reporter'}
+                  {info.label}, {measure === 'robust' ? 'threshold-robust crashes' : measure === 'crashes' ? 'all reportable crashes' : MEASURES.find((m) => m.id === measure)!.label.toLowerCase()} · {pageKind ? kindLabel(pageKind) : 'selected reporter'}
                   {anyScenario && <> <ScenarioBadge label={computed.some((c) => c.points.some((p) => p.assumption)) ? 'your assumption' : undefined} /></>}
                 </span>
                 <span className="panel-total">
                   {grain === 'year' ? `Annual, 2019 to ${lastYear}` : `Monthly, ${year}`} · bands: exact Poisson 95% interval · right axis: exposure behind the rate
                   <SourceBadge sourceIds={allSourceIds} label="All sources for this chart" />
                 </span>
+                <span className="panel-total"><RegimeBadge robust={measure === 'robust'} /></span>
               </figcaption>
               <DualAxisChart
                 series={chartSeries} grain={grain} firstYear={2019} lastYear={lastYear} year={year}
@@ -382,7 +386,7 @@ function RatesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mode
                 <li>Left axis: {info.axis}. Right axis: exposure ({volumeUnit === 'miles' ? 'miles' : 'active vehicles'}).</li>
                 <li><span className="mk mk-fill" /> filled marker: enough crashes, exposure reported or derived</li>
                 <li><span className="mk mk-hollow" /> hollow marker, hatched band: low sample or estimated exposure</li>
-                <li><span className="mk mk-break" /> dashed line: 2025-06-16 NHTSA rule change (not a safety change)</li>
+                <li><span className="mk mk-break" /> dashed line: 2025-06-16 NHTSA rule change (not a safety change); the line is not joined across it</li>
                 <li><span className="mk-late" /> <span className="mk-late-col" /> dotted line, hatched column: {INCOMPLETE_LABEL}</li>
                 <li><span className="flag-icon" aria-hidden="true">⚑</span> flag: that month's exposure was split from very uneven disclosures (&gt;3×), so its rate is unreliable (hover the month for the note)</li>
                 <li><span className="mk mk-area" /> shaded columns: exposure (right axis)</li>
@@ -390,7 +394,8 @@ function RatesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mode
               {grain === 'month' && year > 2025 && (
                 <p className="small">The 2025-06-16 rule change lies before this range: every month shown follows the Third Amended SGO.</p>
               )}
-              {grain === 'year' && <p className="small">2019 and 2020 are empty: SGO reporting began 2021-07, and 2021 covers July to December only. 2025 spans the 2025-06-16 rule change.</p>}
+              {grain === 'year' && <p className="small">2019 and 2020 are empty: SGO reporting began 2021-07, and 2021 covers July to December only. 2025 spans the 2025-06-16 rule change, so it stands alone (not joined to 2024 or 2026); for a before/after reading see <a href="#improving">Improving?</a>.</p>}
+              {measure === 'robust' ? <RobustNote kind={pageKind} /> : measure === 'crashes' ? <p className="small" role="note"><b>All reportable crashes:</b> the reporting threshold changed on 2025-06-16, so this count drops at that date whatever happened on the road. Switch Counting back to threshold-robust crashes to compare across it.</p> : null}
               {anyIncomplete && <p className="small"><IncompleteMark months={[...new Set(computed.flatMap((c) => c.points.flatMap((p) => p.incomplete)))].sort()} /> Recent months are incomplete (late reports expected): hatched columns and dotted lines mark them, so a dip there is not an improvement. Turn on the late-report adjustment in the scenario panel to see an adjusted estimate.</p>}
               {metric === 'per10kVeh' && <p className="small">Per-vehicle rates are crashes per 10,000 vehicle-years: vehicles x (months covered / 12), with the crashes counted over the same months. A partial year is flagged and not read as safer than a full one.</p>}
               {anyLow && <p className="small"><LowSampleMark /> Some points are low-sample or rest on an estimate; read them as rough.</p>}
@@ -441,6 +446,7 @@ function RatesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mode
                   <tr>
                     <th scope="col">Program</th>
                     <th scope="col">Period</th>
+                    <th scope="col">Rules</th>
                     <th scope="col" className="num">Crashes</th>
                     <th scope="col" className="num">Exposure</th>
                     <th scope="col">Kind</th>
@@ -455,6 +461,7 @@ function RatesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mode
                     <tr key={c.prog + p.period} className={p.rate == null && !p.lowerBound ? 'nodata' : ''}>
                       <td><span className="swatch" style={{ background: c.color }} /> {c.short}</td>
                       <td>{p.period}{p.flag && <> <FlagNote note={p.flag} period={p.period} /></>}</td>
+                      <td className="small">{regimeText(p.period)}</td>
                       <td className="num">{fmtInt(p.k)}{p.kAdj !== p.k && <span className="small"> ({fmtNum(p.kAdj)} adj.)</span>}</td>
                       <td className="num">{p.exposure != null ? `${fmtNum(p.exposure)} ${p.exposureUnit}` : p.volume != null ? <span className="small">{fmtNum(p.volume)} {p.volumeUnit}{regionRateBlock(c.region) === 'miles-only' ? ' (CA DMV testing, not a denominator)' : ' (not a denominator)'}</span> : 'none'}</td>
                       <td>{p.exposureKind ?? ''}</td>
@@ -536,6 +543,12 @@ function RatesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mode
       </section>
     </SourcesCtx.Provider>
   );
+}
+
+/** Which reporting rules a period falls under: before, spanning or after the 2025-06-16 change. */
+function regimeText(period: string): string {
+  if (period.length === 4) return period < '2025' ? 'before' : period === '2025' ? 'spans the change' : 'after';
+  return period < '2025-06' ? 'before' : period === '2025-06' ? 'mixed month' : 'after';
 }
 
 function EventList({ events }: { events: RatesData['events'] }) {

@@ -14,6 +14,7 @@ import { getList, setList, toggleIn } from './state/viewstate';
 import { ChipGroup } from './components/ChipGroup';
 import { LowSampleMark, ScenarioBadge, SourceBadge, SourcesCtx } from './components/SourceBadge';
 import { FlagNote, IncompleteMark } from './components/FlagNote';
+import { NumeratorToggle, RegimeBadge, RobustNote, numeratorFrom, type Numerator } from './components/Regime';
 
 const REGION_ORDER = ['us', 'north_america'];
 
@@ -42,6 +43,7 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
   const without = ['tesla_l2', 'tesla_robotaxi', 'zoox_ads', 'other_ads', 'other_l2'].filter((p) => !candidates.some((c) => c.prog === p));
 
   const group = params.get('lg') === 'm' ? 'month' : 'quarter';
+  const numerator = numeratorFrom(params);
   const yMode = params.get('ly') === 'mpc' ? 'mpc' : 'rate';
   const picked = getList(params, 'lp').filter((p) => candidates.some((c) => c.prog === p));
   // Default: the driverless (ADS) programs only. A Level 2 program appears in its own panel once picked.
@@ -53,14 +55,14 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
         .filter((c) => active.includes(c.prog))
         .map((c) => {
           const counts = scopedCounts(rates.countRows, data.crashes, c.prog, c.region, { riderOnly: scenario.riderOnly });
-          const monthly = monthlyPoints(counts, rates.exposure, scenario, { program: c.prog, region: c.region, lastMonth: rates.lastMonth, lag: rates.lag[c.prog] });
+          const monthly = monthlyPoints(counts, rates.exposure, scenario, { program: c.prog, region: c.region, lastMonth: rates.lastMonth, lag: rates.lag[c.prog], measure: numerator });
           const pts = learningCurve(monthly, { group, lastMonth: rates.lastMonth, lag: rates.lag[c.prog] });
           const first = monthly.find((p) => p.exposure != null)?.period ?? '';
           const info = PROGRAM_BY_KEY[c.prog];
           return { prog: c.prog, label: info.short, color: colorOf(info.color, mode), region: c.region, pts, first, kind: c.kind };
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [candidates, active.join('|'), rates, data.crashes, scenario, group, mode],
+    [candidates, active.join('|'), rates, data.crashes, scenario, group, mode, numerator],
   );
   const byKind = (k: KindId) => curves.filter((c) => c.kind === k);
 
@@ -71,7 +73,9 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
         <p className="prose">
           Does the crash rate fall as a program accumulates miles? Each point is one calendar quarter (or month) with its exact Poisson 95% interval, placed at the
           miles accumulated since the program's first disclosed month, to the end of that period (not lifetime miles). <b>A falling curve is not proof of learning</b>: service areas, roads, software, vehicle mix and what gets
-          reported all change together over the same miles, and <b>the NHTSA reporting rules changed on 2025-06-16</b> (diamond markers: periods that straddle it). Hatched points are low-count or rest on estimated miles. Reports lag, so the latest points sit low until later reports arrive.
+          reported all change together over the same miles, and <b>the NHTSA reporting rules changed on 2025-06-16</b> (diamond markers: periods that straddle it; each curve is split there with a gap).
+          By default the points count threshold-robust crashes, which are comparable across the change. Hatched points are low-count or rest on estimated miles. Reports lag, so the latest points sit low until later reports arrive.
+          The log-log axes do not imply a power law; for a before/after reading use <a href="#improving">Improving?</a>.
         </p>
         <KindCaveat extra="Driverless (ADS) curves are the default; a Level 2 program is drawn in its own panel with its own axes, never on the same chart." />
         <div className="rates-controls">
@@ -94,6 +98,7 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
               <button type="button" className={yMode === 'mpc' ? 'on' : ''} aria-pressed={yMode === 'mpc'} onClick={() => setQuery({ ly: 'mpc' })}>Miles per crash</button>
             </div>
           </div>
+          <NumeratorToggle value={numerator} />
           <div className="field">
             Period
             <div className="seg" role="group" aria-label="Period size">
@@ -104,7 +109,7 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
         </div>
 
         {KIND_GROUPS.filter((g) => byKind(g.id).length > 0).map((g) => (
-          <LearningPanel key={g.id} kind={g.id} curves={byKind(g.id)} yMode={yMode} group={group} mode={mode} scenario={scenario} fetched={data.meta.fetched_date} />
+          <LearningPanel key={g.id} kind={g.id} curves={byKind(g.id)} yMode={yMode} group={group} mode={mode} scenario={scenario} fetched={data.meta.fetched_date} numerator={numerator} />
         ))}
         {curves.length === 0 && <p className="callout small">Pick at least one program above.</p>}
 
@@ -120,9 +125,10 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
 }
 
 function LearningPanel({
-  kind, curves, yMode, group, mode, scenario, fetched,
-}: { kind: KindId; curves: Curve[]; yMode: 'rate' | 'mpc'; group: 'quarter' | 'month'; mode: Mode; scenario: Scenario; fetched: string }) {
+  kind, curves, yMode, group, mode, scenario, fetched, numerator,
+}: { kind: KindId; curves: Curve[]; yMode: 'rate' | 'mpc'; group: 'quarter' | 'month'; mode: Mode; scenario: Scenario; fetched: string; numerator: Numerator }) {
   const t = ui(mode);
+  const narrow = typeof window !== 'undefined' && window.innerWidth < 600;
   const option = useMemo<EChartsCoreOption>(() => {
     const all = curves.flatMap((c) => c.pts);
     const xs = all.map((p) => p.cumMiles);
@@ -141,9 +147,16 @@ function LearningPanel({
     const series: unknown[] = [];
     for (const c of curves) {
       const pts = c.pts.filter((p) => (yv(p, 'v') ?? 0) > 0);
+      // Split at the 2025-06-16 rule change: the straddling period stands alone, with a gap on each side.
+      const lineData: (number | null)[][] = [];
+      pts.forEach((p, i) => {
+        const prev = pts[i - 1];
+        if (prev && (prev.straddlesBreak || p.straddlesBreak || (prev.period < '2025-06' && p.period > '2025-06'))) lineData.push([Math.sqrt(prev.cumMiles * p.cumMiles), null]);
+        lineData.push([p.cumMiles, yv(p, 'v')]);
+      });
       series.push({
-        name: c.label, type: 'line', symbol: 'none', lineStyle: { color: c.color, width: 2 }, itemStyle: { color: c.color }, z: 2,
-        data: pts.map((p) => [p.cumMiles, yv(p, 'v')]),
+        name: c.label, type: 'line', symbol: 'none', connectNulls: false, lineStyle: { color: c.color, width: 2 }, itemStyle: { color: c.color }, z: 2,
+        data: lineData,
       });
       series.push({
         name: c.label + ' points', type: 'scatter', symbolSize: 13, z: 4,
@@ -193,7 +206,7 @@ function LearningPanel({
         },
       },
       xAxis: {
-        type: 'log', min: xMin, max: xMax, name: 'miles since first disclosed month (not lifetime miles), log scale', nameLocation: 'middle', nameGap: 32,
+        type: 'log', min: xMin, max: xMax, name: narrow ? 'miles since first disclosure (log)' : 'miles since first disclosed month (not lifetime miles), log scale', nameLocation: 'middle', nameGap: 32,
         nameTextStyle: { color: t.muted }, axisLabel: { color: t.muted, formatter: (v: number) => fmtNum(v) },
         axisLine: { lineStyle: { color: t.rule } }, splitLine: { lineStyle: { color: t.grid } },
       },
@@ -204,7 +217,7 @@ function LearningPanel({
       },
       series,
     } as EChartsCoreOption;
-  }, [curves, yMode, mode, t.muted, t.surface, t.rule, t.ink, t.grid]);
+  }, [curves, yMode, mode, t.muted, t.surface, t.rule, t.ink, t.grid, narrow]);
 
   const noPoints = curves.every((c) => c.pts.length === 0);
   const rows = curves.flatMap((c) => c.pts.map((p) => ({ c, p })));
@@ -226,6 +239,7 @@ function LearningPanel({
               Points: {group === 'quarter' ? 'calendar quarters' : 'months'} · whiskers: exact Poisson 95% interval · log-log axes
               <SourceBadge sourceIds={sourceIds} label="Sources for these points" />
             </span>
+            <span className="panel-total"><RegimeBadge robust={numerator === 'robust'} /></span>
           </figcaption>
           <EChart
             option={option} height={420}
@@ -247,6 +261,10 @@ function LearningPanel({
             Time is implicit on this axis: points after a diamond follow the Third Amended SGO, points before it the earlier rules, so a step at the diamond is a reporting change.
             {curves.some((c) => c.pts.some((p) => p.recent)) && <> {INCOMPLETE_LABEL.charAt(0).toUpperCase() + INCOMPLETE_LABEL.slice(1)}: the latest points are marked in the table.</>}
           </p>
+          {numerator === 'robust' && <RobustNote kind={kind} />}
+          {curves.some((c) => c.prog === 'gm_supercruise') && (
+            <p className="small" role="note"><b>GM Super Cruise:</b> its monthly miles are a straight-line interpolation across a 615-day gap between rounded GM disclosures (two months flagged), so the shape of its curve comes from the interpolation, not from measured miles. Read it as illustration only.</p>
+          )}
         </figure>
       )}
 

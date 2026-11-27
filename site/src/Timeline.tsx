@@ -17,6 +17,8 @@ import { KindCaveat } from './components/KindCaveat';
 import { limitToKind, toggleWithinKind } from './lib/kinds';
 import { SourcesCtx } from './components/SourceBadge';
 import { SourceNote } from './EChart';
+import { NumeratorToggle, RegimeBadge, RobustNote, numeratorFrom } from './components/Regime';
+import { kindOf } from './lib/kinds';
 
 const DAY = 86_400_000;
 const METRICS: { id: Metric; label: string; axis: string }[] = [
@@ -35,7 +37,7 @@ const BRK = (mode: Mode) => (mode === 'dark' ? '#f08a72' : '#b3361a');
 const safeUrl =(u: string) => (/^https?:\/\//i.test(u) ? u : '');
 
 type Sel = { kind: 'event'; e: EventRow } | { kind: 'inv'; i: InvestigationRow } | null;
-type Series = { prog: string; label: string; color: string; region: string; metric: Metric; pts: Point[] };
+type Series = { prog: string; label: string; color: string; region: string; metric: Metric; pts: Point[]; allPts: Point[] | null };
 
 export function Timeline({ data, mode }: { data: Data; mode: Mode }) {
   const { rates, error } = useRatesData();
@@ -69,17 +71,21 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
   const progs = picked.length ? picked : ['waymo_ads'];
   const metric = (METRICS.find((m) => m.id === params.get('tm'))?.id ?? 'perM') as Metric;
   const allCompanies = params.get('tall') === '1';
+  const numerator = numeratorFrom(params);
 
   const series: Series[] = useMemo(
     () =>
       progs.map((prog) => {
         const region = defaultRegion(rates, prog, metric);
         const counts = scopedCounts(rates.countRows, data.crashes, prog, region === 'global' ? 'us' : region, { riderOnly: scenario.riderOnly });
-        const pts = monthlySeries(counts, rates.exposure, scenario, { program: prog, region, metric, lastMonth: rates.lastMonth, lag: rates.lag[prog] });
-        return { prog, label: PROGRAM_BY_KEY[prog].short, color: colorOf(PROGRAM_BY_KEY[prog].color, mode), region, metric, pts };
+        const opts = { program: prog, region, metric, lastMonth: rates.lastMonth, lag: rates.lag[prog] };
+        const pts = monthlySeries(counts, rates.exposure, scenario, { ...opts, measure: numerator });
+        // With the robust numerator, the all-crash series is drawn faint behind it, for context.
+        const allPts = numerator === 'robust' ? monthlySeries(counts, rates.exposure, scenario, { ...opts, measure: 'crashes' }) : null;
+        return { prog, label: PROGRAM_BY_KEY[prog].short, color: colorOf(PROGRAM_BY_KEY[prog].color, mode), region, metric, pts, allPts };
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [progs.join('|'), metric, rates, data.crashes, scenario, mode],
+    [progs.join('|'), metric, rates, data.crashes, scenario, mode, numerator],
   );
 
   const events = useMemo(
@@ -120,7 +126,7 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
   const sc = makeScale(range, L, w - R);
   const inView = (ms: number) => ms >= range.t0 && ms <= range.t1;
 
-  const allVals = series.flatMap((s) => s.pts.filter((p) => p.rate != null).map((p) => p.rate as number));
+  const allVals = series.flatMap((s) => [...s.pts, ...(s.allPts ?? [])].filter((p) => p.rate != null).map((p) => p.rate as number));
   const yMax = niceCeil((allVals.length ? Math.max(...allVals) : 1) * 1.1);
   const yOf = (v: number) => yRate0 + (1 - Math.min(v, yMax) / yMax) * rateH;
 
@@ -185,14 +191,22 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
   ];
 
   const info = METRICS.find((m) => m.id === metric)!;
-  const segments = (s: Series) => {
+  // Segments never join across the 2025-06-16 rule change: June 2025 (mixed) stands alone.
+  const MIXED = BREAK_DATE.slice(0, 7);
+  const segments = (s: Series, pts: Point[] = s.pts) => {
     const segs: Point[][] = [];
     let cur: Point[] = [];
-    for (const p of s.pts) {
+    for (const p of pts) {
       if (p.rate == null || !inView(dateMs(p.period + '-15') + 40 * DAY) && !inView(dateMs(p.period + '-15') - 40 * DAY)) {
         if (cur.length) segs.push(cur);
         cur = [];
-      } else cur.push(p);
+        continue;
+      }
+      if (cur.length && (p.period === MIXED || cur[cur.length - 1].period === MIXED)) {
+        segs.push(cur);
+        cur = [];
+      }
+      cur.push(p);
     }
     if (cur.length) segs.push(cur);
     return segs;
@@ -231,6 +245,7 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
               {METRICS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
             </select>
           </label>
+          <NumeratorToggle value={numerator} />
           <label className="check">
             <input type="checkbox" checked={allCompanies} onChange={(e) => setQuery({ tall: e.target.checked ? '1' : null })} />
             Show events and investigations for every company
@@ -261,8 +276,9 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
         <figure className="panel timeline-panel" ref={wrap}>
           <figcaption>
             <span className="panel-title">
-              {info.label}, monthly
+              {info.label}, monthly, {numerator === 'robust' ? 'threshold-robust crashes' : 'all reportable crashes'}
             </span>
+            <span className="panel-total"><RegimeBadge robust={numerator === 'robust'} /></span>
             <span className="panel-total">
               Lines: monthly rate with its exact Poisson 95% band, gaps where no exposure is disclosed · hollow markers: low sample or estimated exposure
             </span>
@@ -297,6 +313,14 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
             <line x1={L} x2={w - R} y1={yAxis} y2={yAxis} stroke={t.rule} />
 
             <g clipPath="url(#tl-clip)">
+              {/* all-crash context (faint) behind the robust curve */}
+              {series.map((s) => s.allPts && (
+                <g key={'all' + s.prog} aria-hidden="true">
+                  {segments(s, s.allPts).map((seg, i) => seg.length > 1 && (
+                    <path key={i} d={'M' + seg.map((p) => `${px(p)},${yOf(p.rate!)}`).join('L')} fill="none" stroke={t.faint} strokeWidth={1.2} opacity={0.8} />
+                  ))}
+                </g>
+              ))}
               {/* rate curves */}
               {series.map((s) => (
                 <g key={s.prog}>
@@ -436,7 +460,8 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
             {series.map((s) => (
               <li key={s.prog}><span className="swatch" style={{ background: s.color }} /> {s.label}</li>
             ))}
-            <li><span className="mk mk-break" /> 2025-06-16 rule change (not a safety change)</li>
+            <li><span className="mk mk-break" /> 2025-06-16 rule change (not a safety change); curves are not joined across it</li>
+            {numerator === 'robust' && <li><span className="swatch" style={{ background: t.faint }} /> faint grey: all reportable crashes, for context (their threshold changed)</li>}
             <li>◆ filled: dated to the day · ◇ hollow: month only</li>
             <li><span className="flag-icon">⚑</span> unreliable month: exposure split from very uneven disclosures (&gt;3×)</li>
             <li>Probe bars: solid = closed, hatched = open</li>
@@ -444,6 +469,7 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
           <p className="small" style={{ padding: '0 6px' }}>
             The last two or three months always sit low: reports are still arriving (the Rates tab can adjust for late reports).
           </p>
+          <div style={{ padding: '0 6px' }}><RobustNote kind={kindOf(progs[0])} /></div>
           {noRate.length > 0 && (
             <p className="small">
               No exposure is disclosed for {noRate.map((s) => s.label).join(', ')} with this curve, so it shows no line rather than a zero. Choose "Crash count" to see their months.

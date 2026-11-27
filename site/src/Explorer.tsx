@@ -560,7 +560,7 @@ function Drawer({ c, onClose }: { c: Crash; onClose: () => void }) {
           </div>
         ))}
       </dl>
-      <p className="small">Narratives are not included in this preview. The record shown is this program&rsquo;s own report of the crash (the one with the highest injury level if it filed several).</p>
+      <p className="small">Narratives are not loaded in this view (open a report on the Responsibility tab to read one). The record shown is this program&rsquo;s own report of the crash (the one with the highest injury level if it filed several).</p>
     </aside>
   );
 }

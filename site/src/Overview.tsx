@@ -109,8 +109,8 @@ export function Overview({ data, mode }: { data: Data; mode: Mode }) {
       <h2>Crashes per month, by program</h2>
       <p className="prose">
         Each bar is the number of crashes a program filed (reports of one crash by one program are merged) with an incident in that month.
-        Counts are not rates: programs differ enormously in miles driven and fleet size, which is why this page does
-        not rank them.
+        Counts are not rates: programs differ enormously in miles driven and fleet size, so this page does not rank them. Rates with intervals are on the
+        Rates tab, and <a href="#improving">Improving?</a> compares each program before and after the 2025-06-16 rule change.
       </p>
       <KindCaveat extra="Each panel has its own scale; the shared-scale option below only equalises panels of the same kind." />
       <div className="controls">
@@ -155,6 +155,11 @@ export function Overview({ data, mode }: { data: Data; mode: Mode }) {
         reported changed). A change across it is not a change in safety. The latest months are incomplete because
         reports arrive weeks later. {fmt(outside.early)} crashes dated before 2021 and {fmt(outside.undated)} with no
         valid date are not shown.
+      </p>
+      <p className="prose small">
+        Why totals differ between tabs: a panel counts crashes with an incident month from 2021 on, so it can be a few lower than the number in brackets in the entity picker (every
+        crash the entity filed); the Rates tab counts an entity once per program and incident it filed; the crash explorer counts every program-level record. Reports whose automation was
+        verified not engaged ({fmt(data.meta.not_engaged?.total ?? 0)}) are not counted anywhere (Data &amp; sources).
       </p>
       <SourceNote date={meta.fetched_date} extra="Unique crashes by incident month." />
 

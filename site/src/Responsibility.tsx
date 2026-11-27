@@ -19,6 +19,7 @@ import { getList, toggleIn } from './state/viewstate';
 import { useResponsibility, type RespData } from './state/responsibilityData';
 import { ComparisonStrip, RulesAndAudit } from './ResponsibilityRules';
 import { CrashList } from './ResponsibilityList';
+import { CrashLevelSummary, TimeGuarded } from './ResponsibilityTime';
 
 const pctText = (x: number, d = 0) => (x * 100).toFixed(d) + '%';
 
@@ -129,13 +130,25 @@ function Loaded({ data, resp, mode }: { data: Data; resp: RespData; mode: Mode }
       <h3>Share of each program&rsquo;s reports by inferred label</h3>
       <LabelBars agg={agg} share={share} mode={mode} rows={rows} readable={resp.audit.comparison.tesla_l2?.readable_narratives ?? 0} onPick={pickSegment} />
 
+      <CrashLevelSummary rows={rows} mode={mode} />
+
+      <div className="callout small" role="note">
+        <b>Missing fields and revisions drive the &ldquo;{CANNOT_NAME}&rdquo; share.</b> A report can only be labelled when its pre-crash movement and contact area are filled in.
+        Tesla&rsquo;s first filings usually leave them unknown and used to fill them in by later revisions, which largely stopped for incidents from 2024 on, so Tesla&rsquo;s cannot-tell share
+        tracks its revision practice. Any pooled Tesla share averages two reporting practices. See Transparency &rarr; reporting completeness and revisions.
+      </div>
+
       <ComparisonStrip rows={rows} resp={resp} />
 
       <h3>Flow: from engagement to inferred label</h3>
       <Flow graph={graph} selected={f.flow} mode={mode} onPick={pickFlow} />
 
-      <h3>Over time</h3>
-      <TimePanels rows={rows} share={share} grain={grain} mode={mode} />
+      <h3>Over time, with a missingness guard</h3>
+      <TimeGuarded rows={rows} data={data} mode={mode} />
+      <details className="table-view">
+        <summary>Monthly report labels (raw, no guard)</summary>
+        <TimePanels rows={rows} share={share} grain={grain} mode={mode} />
+      </details>
 
       <CrashList all={all} resp={resp} f={f} mode={mode} />
 

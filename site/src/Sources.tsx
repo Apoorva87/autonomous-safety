@@ -21,7 +21,9 @@ async function getJson<T>(name: string): Promise<T> {
 const CAVEATS: [string, string][] = [
   ['Level 2 and ADS are not comparable', KIND_CAVEAT + ' Under the order, a Level 2 crash is reportable only when it meets severity, vulnerable-road-user, airbag or tow-away criteria, while an ADS crash is reportable at almost any contact. Most of the gap between the two kinds of programs is this definition, not safety. The site never puts the two on one axis, funnel, ranking or overlaid line.'],
   ['Crash windows', 'NHTSA SGO reports use a 30-second engagement window for both ADS and Level 2: the system must have been engaged within 30 seconds before the crash, through its conclusion. Tesla\'s Vehicle Safety Report counts crashes with Autopilot active, or deactivated, within 5 seconds before impact (airbag or active-restraint deployments). The two are never put in one series.'],
-  ['Rules changed 2025-06-16', 'NHTSA\'s Third Amended Standing General Order changed which crashes must be reported and the data schema. A drop across that date is a reporting change, not a safety improvement; time charts mark it, and learning curves mark the periods that straddle it.'],
+  ['Rules changed 2025-06-16', 'NHTSA\'s Third Amended Standing General Order changed which crashes must be reported and the data schema. Minor crashes without injury, air bag or tow-away largely stopped being reported, so a count of all reported crashes drops at that date whatever happened on the road. Time charts therefore count threshold-robust crashes by default (definition below), never join a line across the date, and carry a badge; the all-crash count stays available as a labelled option. Cities are ranked within one regime only.'],
+  ['Tesla incident times are UTC', 'Tesla files incident times in UTC; every other reporter files local time. Hours and light conditions convert Tesla times to the local time of the report\'s state (details below). Without the conversion Tesla\'s crashes look like night-time crashes.'],
+  ['Fields that exist in one era only', 'Lighting, road surface and speed limit are collected only through 2025-06-15; hospitalization is spelled out only from 2025-06-16 (so it is never true before). Any chart that uses them shows a false onset or end at the change; the light condition derived from time is the comparable alternative.'],
   ['Rider-only miles', 'Waymo, Cruise, Zoox and Tesla Robotaxi miles are rider-only (no human driver on board). By default their rates count only crashes whose operator type is none or remote; crashes with an in-vehicle operator are left out and the number excluded is shown. The scenario panel can turn this off.'],
   ['California DMV miles are not a denominator', 'California DMV autonomous-testing miles cover Dec-Nov reporting years and include testing with safety drivers, so they cannot be matched to SGO crashes (calendar months, all operations). They appear as an informational series labelled "CA DMV testing miles, Dec–Nov, not comparable with SGO crashes", never as a rate.'],
   ['Estimates are labelled', 'Every exposure figure is tagged reported, derived or estimate. Where no mileage is disclosed (Tesla Autopilot/FSD in the US), no per-mile rate is drawn unless you set a miles-per-vehicle assumption yourself, and the result is badged as your assumption. Per-vehicle rates are per vehicle-year, with partial years flagged.'],
@@ -126,6 +128,8 @@ export function Sources({ data }: { data: Data }) {
           </li>
         ))}
       </ul>
+
+      <DerivedClasses data={data} />
 
       <h3>NHTSA files and fetch log</h3>
       <div className="table-wrap">
@@ -278,5 +282,74 @@ export function Sources({ data }: { data: Data }) {
       </div>
       <SourceNote date={meta.fetched_date} />
     </section>
+  );
+}
+
+const LABEL_SHORT: Record<string, string> = { day: 'Day', twilight: 'Twilight', night: 'Night' };
+
+/** Definitions of the derived classes the pipeline adds, with their uncertainty and the checks behind them. */
+function DerivedClasses({ data }: { data: Data }) {
+  const { meta } = data;
+  const rd = meta.robust_definition;
+  const ne = meta.not_engaged;
+  const lc = meta.light_check as Record<string, { n: number; day_night_agreement: number | null; opposite: number; recorded_by_derived: Record<string, Record<string, number>> }> | undefined;
+  const pctOf = (x: number | null | undefined) => (x == null ? 'n/a' : (x * 100).toFixed(1) + '%');
+  return (
+    <>
+      <h3>Derived classes and corrections</h3>
+      {rd && (
+        <div className="callout small">
+          <b>Threshold-robust crashes ({rd.short}).</b> {rd.why}
+          <ul>
+            <li><b>Driverless (ADS) programs:</b> {rd.ads}</li>
+            <li><b>Level 2 programs:</b> {rd.l2}</li>
+          </ul>
+          <b>Uncertainty.</b>
+          <ul>{rd.uncertainty.map((u) => <li key={u}>{u}</li>)}</ul>
+          A crash is robust when any of the program&rsquo;s own reports of it meets a criterion. It is the default numerator on every time chart (Rates, Timeline, Learning, Cities, Improving?).
+        </div>
+      )}
+      {ne && (
+        <div className="callout small">
+          <b>{fmt(ne.total)} reports are not counted as crashes of their program</b> because the filer marked the automation as <em>verified not engaged</em> (Engagement Status, collected from 2025-06-16):{' '}
+          {Object.entries(ne.by_program).map(([p, n]) => `${p} ${n}`).join(', ')}. They stay in the golden database and in the revisions statistics.
+          {Object.keys(ne.alleged_engaged_by_program).length > 0 && <> Reports marked <em>alleged engaged</em> are counted as filed ({Object.entries(ne.alleged_engaged_by_program).map(([p, n]) => `${p} ${n}`).join(', ')}).</>}
+        </div>
+      )}
+      {meta.time_rule && (
+        <div className="callout small">
+          <b>Local time.</b> {meta.time_rule}
+          {lc?.tesla_as_filed && lc?.tesla_converted_from_utc && (
+            <> Check (archive-era Tesla reports with a recorded Lighting value, day vs night): {pctOf(lc.tesla_as_filed.day_night_agreement)} agree as filed, {pctOf(lc.tesla_converted_from_utc.day_night_agreement)} after converting
+            ({fmt(lc.tesla_as_filed.n)} reports); every other reporter: {pctOf(lc.other_reporters?.day_night_agreement)} as filed.</>
+          )}
+        </div>
+      )}
+      {meta.light_rule && (
+        <div className="callout small">
+          <b>Light condition (approximate).</b> {meta.light_rule} Before 2025-06-16 the recorded Lighting field is used where it exists (basis &ldquo;recorded&rdquo;); after it, Lighting is no longer collected and the condition is derived
+          from time (basis &ldquo;derived from time&rdquo;). The visibility tag in the Patterns tab still uses the recorded field only, so it cannot fire after the change; the EA26002 lens and the time-of-day view use the derived condition.
+          {lc?.all_reporters && <> Where both exist, recorded and derived agree on day vs night in {pctOf(lc.all_reporters.day_night_agreement)} of {fmt(lc.all_reporters.n)} reports.</>}
+          {meta.sun_table && (
+            <details className="table-view">
+              <summary>Sunrise and sunset table used (local clock time, mid-month)</summary>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th scope="col">Month</th>{Object.keys(meta.sun_table).map((m) => <th key={m} scope="col" className="num">{m}</th>)}</tr></thead>
+                  <tbody>
+                    <tr><th scope="row">Sunrise</th>{Object.values(meta.sun_table).map((v, i) => <td key={i} className="num">{v.sunrise}</td>)}</tr>
+                    <tr><th scope="row">Sunset</th>{Object.values(meta.sun_table).map((v, i) => <td key={i} className="num">{v.sunset}</td>)}</tr>
+                  </tbody>
+                </table>
+              </div>
+              {lc?.all_reporters && (
+                <p className="small">Recorded (rows) vs derived (columns): {Object.entries(lc.all_reporters.recorded_by_derived).map(([r, c]) => `${LABEL_SHORT[r] ?? r}: ${Object.entries(c).map(([d, n]) => `${LABEL_SHORT[d] ?? d} ${n}`).join(', ')}`).join('; ')}.</p>
+              )}
+            </details>
+          )}
+        </div>
+      )}
+      {meta.field_notes?.hospitalized && <p className="small-block"><b>Hospitalized:</b> {meta.field_notes.hospitalized}</p>}
+    </>
   );
 }

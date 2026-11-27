@@ -56,15 +56,16 @@ export function TeslaVsrPanel({ rows, mode }: { rows: CompanyRow[]; mode: Mode }
         Tesla's own Vehicle Safety Report (company-reported) <SourceBadge sourceIds={sourceIds} label="Tesla report sources" />
       </h3>
       <p className="prose small">
-        <b>Tesla counts crashes with Autopilot active, or deactivated, within 5 seconds before impact; NHTSA SGO reports use a 30-second engagement window.</b> Tesla's figures are worldwide, include crashes that are
-        not reportable to NHTSA, and use airbag or active-restraint deployment as the crash definition. They are shown on their own and are never merged with,
-        or drawn on the same axis as, any NHTSA series.
+        <b>Tesla counts crashes with Autopilot active, or deactivated, within 5 seconds before impact; NHTSA SGO reports use a 30-second engagement window.</b> The quarterly
+        miles-per-crash chart below is Tesla's worldwide fleet figure (geography not stated), includes crashes that are not reportable to NHTSA, and uses airbag or
+        active-restraint deployment as the crash definition. The rolling 12-month FSD table under it is a different, <b>North America</b> series (its last row is the US
+        average Tesla cites). Neither is merged with, or drawn on the same axis as, any NHTSA series, which covers US crashes only.
       </p>
       <EChart option={option} height={320} label="Tesla Vehicle Safety Report: miles per crash by quarter with Autopilot, without Autopilot, and the US average Tesla cites" />
       {periods.length > 0 && (
         <div className="table-wrap">
           <table>
-            <caption className="small" style={{ textAlign: 'left', padding: '6px 10px' }}>Rolling 12-month figures published by Tesla (North America)</caption>
+            <caption className="small" style={{ textAlign: 'left', padding: '6px 10px' }}>Rolling 12-month FSD figures published by Tesla (North America; the last row is the US average Tesla cites)</caption>
             <thead>
               <tr>
                 <th scope="col">Measure</th>

@@ -1,5 +1,5 @@
 import { ci95 } from './poisson';
-import { BREAK_DATE, monthIncomplete, series, type CountsByMonth, type ExposureRow, type Kind, type LagCurve, type Metric, type Point } from './metrics';
+import { BREAK_DATE, monthIncomplete, series, type CountsByMonth, type ExposureRow, type Kind, type LagCurve, type Measure, type Metric, type Point } from './metrics';
 import type { Scenario } from '../state/scenario';
 
 // Learning curves: crash rate against cumulative exposure. Points are calendar quarters built from the
@@ -46,7 +46,7 @@ export function monthlyPoints(
   counts: CountsByMonth | null,
   exposure: ExposureRow[],
   scenario: Scenario,
-  opts: { program: string; region: string; lastMonth: string; lag?: LagCurve },
+  opts: { program: string; region: string; lastMonth: string; lag?: LagCurve; measure?: Measure },
 ): Point[] {
   const years = exposure
     .filter((r) => r.program === opts.program && r.region === opts.region && r.metric === 'miles' && r.period.length === 7)
@@ -58,7 +58,7 @@ export function monthlyPoints(
   for (let y = y0; y <= y1; y++) {
     out.push(
       ...series(counts, exposure, scenario, {
-        program: opts.program, region: opts.region, metric: 'perM', grain: 'month', year: y, lastMonth: opts.lastMonth, lag: opts.lag,
+        program: opts.program, region: opts.region, metric: 'perM', grain: 'month', year: y, lastMonth: opts.lastMonth, lag: opts.lag, measure: opts.measure,
       }),
     );
   }
@@ -116,13 +116,13 @@ export function monthlySeries(
   counts: CountsByMonth | null,
   exposure: ExposureRow[],
   scenario: Scenario,
-  opts: { program: string; region: string; metric: Metric; lastMonth: string; lag?: LagCurve },
+  opts: { program: string; region: string; metric: Metric; lastMonth: string; lag?: LagCurve; measure?: Measure },
 ): Point[] {
   const out: Point[] = [];
   for (let y = 2021; y <= Number(opts.lastMonth.slice(0, 4)); y++) {
     out.push(
       ...series(counts, exposure, scenario, {
-        program: opts.program, region: opts.region, metric: opts.metric, grain: 'month', year: y, lastMonth: opts.lastMonth, lag: opts.lag,
+        program: opts.program, region: opts.region, metric: opts.metric, grain: 'month', year: y, lastMonth: opts.lastMonth, lag: opts.lag, measure: opts.measure,
       }),
     );
   }

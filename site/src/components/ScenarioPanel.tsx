@@ -66,7 +66,7 @@ export function ScenarioPanel({
             onChange={(e) => update({ lagMultiplier: Number(e.target.value) })}
           />
           <p className="small">
-            Each month's count is divided by the share of that program's reports usually filed by now (lag.json). It only matters for the last few months.
+            Each month's count is divided by the share of that program's reports usually filed by now, in whole months, using the completeness curve of that month's own regime (before or after the 2025-06-16 rule change; filing got faster after it, so the curves are never pooled; lag.json). It only matters for the last few months.
           </p>
         </div>
 

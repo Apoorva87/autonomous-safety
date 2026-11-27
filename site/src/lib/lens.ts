@@ -28,11 +28,12 @@ export const LENSES: Lens[] = [
     investigationId: 'EA26002',
     programs: ['tesla_l2'],
     rule:
-      'Tesla Autopilot/FSD reports where lighting is dark or dawn/dusk, or weather is fog, rain, snow or dust, or the reduced-visibility / glare tag applies (a structured field or a narrative keyword). Lighting is only collected until 2025-06-15.',
+      'Tesla Autopilot/FSD reports where the light condition is night or twilight, or weather is fog, rain, snow or dust, or the reduced-visibility / glare tag applies (a structured field or a narrative keyword). Through 2025-06-15 the light condition is the recorded Lighting field; after that NHTSA no longer collects Lighting, so it is derived from the incident time (converted from UTC for Tesla) and month: an approximation with a one-hour twilight band, not a measurement.',
     test: (c) =>
       c.program === 'tesla_l2' &&
       (hasTag(c, 'visibility_glare') ||
         (c.lighting != null && DARK_LIGHTING.includes(c.lighting)) ||
+        ((c.lighting == null || c.lighting === 'unknown' || c.lighting === 'other') && (c.light_condition === 'night' || c.light_condition === 'twilight')) ||
         c.weather.some((w) => LOW_VIS_WEATHER.includes(w))),
   },
   {

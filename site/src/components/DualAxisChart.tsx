@@ -128,16 +128,29 @@ export function DualAxisChart({
       // complete point to them is dotted, never solid.
       const late = (p: Point) => p.incomplete.length > 0;
       const solid = s.points.map((p) => (late(p) ? null : p));
+      // The line is never joined across the 2025-06-16 rule change: a period that contains it (2025, or June 2025) stands
+      // alone as a marker, and a gap is inserted on both sides of it.
+      const straddles = (period: string) => (grain === 'year' ? period === BREAK_DATE.slice(0, 4) : period === BREAK_DATE.slice(0, 7));
+      const crosses = (a: string, b: string) => a < BREAK_DATE.slice(0, a.length) && b > BREAK_DATE.slice(0, b.length);
+      const lineData: unknown[] = [];
+      solid.forEach((p, i) => {
+        const period = s.points[i].period;
+        if (i > 0) {
+          const prev = s.points[i - 1].period;
+          if (straddles(prev) || straddles(period) || crosses(prev, period)) lineData.push({ value: [(axis.xOf(prev) + axis.xOf(period)) / 2, null] });
+        }
+        lineData.push({
+          value: [axis.xOf(period), p ? p.rate : null],
+          // hollow marker = low sample / estimate
+          itemStyle: p?.lowSample ? { color: t.surface, borderColor: s.color, borderWidth: 2 } : { color: s.color, borderColor: t.surface, borderWidth: 1.5 },
+        });
+      });
       all.push({
         id: `rate:${s.key}`, name: s.label, type: 'line', yAxisIndex: 0, z: 4, silent: true,
         tooltip: { show: false },
         connectNulls: false, symbol: 'circle', symbolSize: 9,
         lineStyle: { color: s.color, width: 2 }, itemStyle: { color: s.color },
-        data: solid.map((p, i) => ({
-          value: [axis.xOf(s.points[i].period), p ? p.rate : null],
-          // hollow marker = low sample / estimate
-          itemStyle: p?.lowSample ? { color: t.surface, borderColor: s.color, borderWidth: 2 } : { color: s.color, borderColor: t.surface, borderWidth: 1.5 },
-        })),
+        data: lineData,
       });
       const firstLate = s.points.findIndex(late);
       if (firstLate >= 0) {
