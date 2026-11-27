@@ -29,17 +29,20 @@ export function CrashLevelSummary({ rows, mode }: { rows: RespRow[]; mode: Mode 
         &ldquo;Own motion&rdquo; is split by what was hit, because most of it is single-vehicle contact (curbs, poles, gates, debris) or animals, not striking another road user.
       </p>
       <div className="table-wrap">
-        <table className="strip-table">
+        <table className="strip-table crash-level-table">
           <caption className="sr-only">Report labels and crash-level labels per program, with own-motion sub-kinds</caption>
           <thead>
             <tr>
-              <th scope="col">Program</th>
-              <th scope="col" className="num">Report labels</th>
-              <th scope="col" className="num">Crashes</th>
-              <th scope="col" className="num">{OTHER_NAME}</th>
-              <th scope="col" className="num">Own motion</th>
-              <th scope="col" className="num">{CANNOT_NAME}</th>
-              {OWN_KINDS.map((k) => <th key={k} scope="col" className="num">Own motion: {OWN_KIND_NAME[k].toLowerCase()}</th>)}
+              <th scope="col" rowSpan={2}>Program</th>
+              <th scope="col" rowSpan={2} className="num">Report labels</th>
+              <th scope="col" rowSpan={2} className="num">Crashes</th>
+              <th scope="col" rowSpan={2} className="num">{OTHER_NAME}</th>
+              <th scope="col" rowSpan={2} className="num">Own motion</th>
+              <th scope="col" rowSpan={2} className="num">{CANNOT_NAME}</th>
+              <th scope="colgroup" colSpan={OWN_KINDS.length} className="own-group">Own motion, by what was hit (share of own motion)</th>
+            </tr>
+            <tr>
+              {OWN_KINDS.map((k) => <th key={k} scope="col" className="num">{OWN_KIND_NAME[k]}</th>)}
             </tr>
           </thead>
           <tbody>
