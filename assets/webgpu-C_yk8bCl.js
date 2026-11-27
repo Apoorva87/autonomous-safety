@@ -1,4 +1,4 @@
-import{c as F}from"./expression-Bl_GL2tO.js";import{aQ as f,aR as v,aS as m,aM as M,aN as V,aT as k,aU as L,aJ as S,aI as z,aV as y,aW as R,aX as $,aY as _}from"./index-NBhe2NfC.js";import{aZ as fe}from"./index-NBhe2NfC.js";const B=`fn arithmetic_add(x: {TYPE}, y: {TYPE}) -> {TYPE} {
+import{c as C}from"./expression-Bl_GL2tO.js";import{aM as f,aN as v,aO as m,aI as M,aJ as V,aP as k,aQ as L,aF as S,aE as z,aR as y,aS as R,aT as $,aU as _}from"./index-DGEveX0l.js";import{aV as fe}from"./index-DGEveX0l.js";const B=`fn arithmetic_add(x: {TYPE}, y: {TYPE}) -> {TYPE} {
   return x + y;
 }
 
@@ -17,7 +17,7 @@ fn arithmetic_divide(x: {TYPE}, y: {TYPE}) -> {TYPE} {
 fn arithmetic_tan(x: f32) -> f32 {
   return tan_fp32(x);
 }
-`,Q=({inputs:n,output:e,target:r})=>{const t=e.type,s=f(t),i=v(t),o=n.namedInputs;return m({module:{name:"arithmetic",source:B,dependencies:[M]},inputs:o,output:e,operationType:t,outputBuffer:r,expression:c=>F(n.expression,{operations:V,inputs:o,laneIndex:c,formatInput:a=>`${a}[${c}]`,formatOutOfBoundsInput:a=>o[a].size===1?`${a}[0]`:i,formatLiteral:a=>{const l=Array.isArray(a)?a[c]??0:a;return`${s}(${k(t,l)})`},formatCall:(a,l)=>`${a}(${l.join(", ")})`})}),{success:!0}},Y=`fn row_dot(x: array<{TYPE}, {X_LEN}>, y: array<{TYPE}, {Y_LEN}>) -> array<f32, 1> {
+`,Q=({inputs:n,output:e,target:r})=>{const t=e.type,s=f(t),i=v(t),o=n.namedInputs;return m({module:{name:"arithmetic",source:B,dependencies:[M]},inputs:o,output:e,operationType:t,outputBuffer:r,expression:c=>C(n.expression,{operations:V,inputs:o,laneIndex:c,formatInput:a=>`${a}[${c}]`,formatOutOfBoundsInput:a=>o[a].size===1?`${a}[0]`:i,formatLiteral:a=>{const l=Array.isArray(a)?a[c]??0:a;return`${s}(${k(t,l)})`},formatCall:(a,l)=>`${a}(${l.join(", ")})`})}),{success:!0}},Y=`fn row_dot(x: array<{TYPE}, {X_LEN}>, y: array<{TYPE}, {Y_LEN}>) -> array<f32, 1> {
   var sum = 0.0;
   for (var i = 0u; i < {X_LEN}u; i = i + 1u) {
     sum += f32(x[i]) * f32(y[i]);
@@ -34,7 +34,7 @@ fn arithmetic_tan(x: f32) -> f32 {
   }
   return array<u32, 1>(allEqual);
 }
-`,ne=({inputs:n,output:e,target:r})=>(m({module:{name:"equalAll",source:O},inputs:n,output:e,operationType:n.x.type,outputBuffer:r}),{success:!0}),x=64;function I(n,e,r){const t=f(e.type);return`@group(0) @binding(${r}) var<storage, read> ${n}: array<${t}>;`}function N(n,e,r,t=n){const s=f(r);if(e.isConstant){const l=e.value;if(!l)throw new Error(`Constant input ${e} is missing CPU values`);return`fn read_${t}(_sourceIndex: u32) -> array<${s}, ${e.size}> {
+`,ne=({inputs:n,output:e,target:r})=>(m({module:{name:"equalAll",source:O},inputs:n,output:e,operationType:n.x.type,outputBuffer:r}),{success:!0}),x=64;function I(n,e,r){const t=f(e.type);return`@group(0) @binding(${r}) var<storage, read> ${n}: array<${t}>;`}function F(n,e,r,t=n){const s=f(r);if(e.isConstant){const l=e.value;if(!l)throw new Error(`Constant input ${e} is missing CPU values`);return`fn read_${t}(_sourceIndex: u32) -> array<${s}, ${e.size}> {
   return array<${s}, ${e.size}>(${Array.from({length:e.size},(u,d)=>L(s,l[d]??0)).join(", ")});
 }`}const i=e.stride/e.ValueType.BYTES_PER_ELEMENT,o=e.offset/e.ValueType.BYTES_PER_ELEMENT,a=f(e.type)===s?"":`${s}`;return`fn read_${t}(sourceIndex: u32) -> array<${s}, ${e.size}> {
   var value: array<${s}, ${e.size}>;
@@ -42,7 +42,7 @@ fn arithmetic_tan(x: f32) -> f32 {
 ${Array.from({length:e.size},(l,u)=>a?`  value[${u}] = ${a}(${n}[rowOffset + ${u}u]);`:`  value[${u}] = ${n}[rowOffset + ${u}u];`).join(`
 `)}
   return value;
-}`}function C(n,e){return N("sourceValues",n,e,"source_values")}function T(n,e){const r=f(n.type);return`@group(0) @binding(${e}) var<storage, read_write> result: array<${r}>;`}function P(n){const e=n.stride/n.ValueType.BYTES_PER_ELEMENT,r=n.offset/n.ValueType.BYTES_PER_ELEMENT;return`fn write_result(rowIndex: u32, value: array<${f(n.type)}, ${n.size}>) {
+}`}function N(n,e){return F("sourceValues",n,e,"source_values")}function T(n,e){const r=f(n.type);return`@group(0) @binding(${e}) var<storage, read_write> result: array<${r}>;`}function P(n){const e=n.stride/n.ValueType.BYTES_PER_ELEMENT,r=n.offset/n.ValueType.BYTES_PER_ELEMENT;return`fn write_result(rowIndex: u32, value: array<${f(n.type)}, ${n.size}>) {
   let rowOffset = ${r}u + rowIndex * ${e}u;
 ${Array.from({length:n.size},(s,i)=>`  result[rowOffset + ${i}u] = value[${i}];`).join(`
 `)}
@@ -53,7 +53,7 @@ ${Array.from({length:e},(t,s)=>`  result[${s}] = ${r};`).join(`
   return result;
 }`}const re=({inputs:n,output:e,target:r})=>{const{sourceValues:t}=n;if(t.length===0){const a=new e.ValueType(e.length*e.size);return r.write(a),{success:!0,value:a}}if(t.isConstant){const a=t.value;if(!a)throw new Error(`Constant input ${t} is missing CPU values`);const l=new e.ValueType(e.length*e.size);for(let u=0;u<e.length;u++){const d=a[u];l[u*2]=d,l[u*2+1]=d}return r.write(l),{success:!0,value:l}}const s=[];let i=t,o="raw",c=t.length;try{for(;;){const a=Math.ceil(c/x),l=e.length*a,u=a===1?r:S.createOrReuse(r.device,l*e.stride);if(a>1&&s.push(u),G({input:i,inputMode:o,inputGroupCount:c,channelCount:e.length,outputType:e.type,outputBuffer:u,outputLength:l,outputStride:e.stride,outputOffset:e.offset}),a===1)break;i=new z({buffer:u,type:e.type,size:2,length:l}),o="partial",c=a}return{success:!0}}finally{for(const a of s)S.recycle(a)}};function G({input:n,inputMode:e,inputGroupCount:r,channelCount:t,outputType:s,outputBuffer:i,outputLength:o,outputStride:c,outputOffset:a}){const l=f(s),u=y(o,i.device.limits.maxComputeWorkgroupsPerDimension),d=new z({buffer:i,type:s,size:2,length:o,stride:c,offset:a}),p=`
 ${n.isConstant?"":I("sourceValues",n,0)}
-${C(n,s)}
+${N(n,s)}
 ${T(d,n.isConstant?0:1)}
 ${P(d)}
 ${U(e,s,t,r)}
@@ -126,7 +126,7 @@ var<workgroup> sharedMax: array<${l}, ${x}>;
   }
 
   return result;
-}`}function W(n){switch(n){case"uint32":return["0xffffffffu","0u"];case"sint32":return["2147483647","-2147483648"];case"float32":return["3.402823e38","-3.402823e38"];default:throw new Error(`Unsupported WebGPU extent type for ${n}`)}}function D(){const n=new Uint16Array([255]);return new Uint8Array(n.buffer)[0]>0}const X=`const LE: bool = ${D()?"true":"false"};
+}`}function W(n){switch(n){case"uint32":return["0xffffffffu","0u"];case"sint32":return["2147483647","-2147483648"];case"float32":return["3.402823e38","-3.402823e38"];default:throw new Error(`Unsupported WebGPU extent type for ${n}`)}}function D(){const n=new Uint16Array([255]);return new Uint8Array(n.buffer)[0]>0}const j=`const LE: bool = ${D()?"true":"false"};
 const F32_NAN: u32 = 0xffffffffu;
 const F32_INF: u32 = 0x7f800000u;
 
@@ -265,15 +265,15 @@ fn fround(x: array<u32, {X_LEN}>) -> array<f32, {RESULT_LEN}> {
   }
   return result;
 }
-`,te=({inputs:n,output:e,target:r})=>(m({module:{name:"fround",source:X},inputs:n,output:e,operationType:"uint32",outputBuffer:r}),{success:!0}),se=async({inputs:n,output:e,target:r})=>{const{ids:t,sourceValues:s}=n,i=f(t.type),o=[];t.isConstant||o.push({name:"ids",input:t,index:o.length}),s.isConstant||o.push({name:"sourceValues",input:s,index:o.length});const c=y(Math.ceil(e.length/x),r.device.limits.maxComputeWorkgroupsPerDimension),a=`
+`,te=({inputs:n,output:e,target:r})=>(m({module:{name:"fround",source:j},inputs:n,output:e,operationType:"uint32",outputBuffer:r}),{success:!0}),se=async({inputs:n,output:e,target:r})=>{const{ids:t,sourceValues:s}=n,i=f(t.type),o=[];t.isConstant||o.push({name:"ids",input:t,index:o.length}),s.isConstant||o.push({name:"sourceValues",input:s,index:o.length});const c=y(Math.ceil(e.length/x),r.device.limits.maxComputeWorkgroupsPerDimension),a=`
 ${o.map(({name:p,input:g,index:h})=>I(p,g,h)).join(`
 `)}
-${Z(t,i)}
-${C(s,e.type)}
+${q(t,i)}
+${N(s,e.type)}
 ${T(e,o.length)}
 ${P(e)}
 ${A(e.type,e.size)}
-${j(t.type,e.type,e.size,s.length)}
+${X(t.type,e.type,e.size,s.length)}
 
 @compute @workgroup_size(${x}) fn main(
   @builtin(workgroup_id) workgroupId: vec3<u32>,
@@ -288,12 +288,12 @@ ${j(t.type,e.type,e.size,s.length)}
   let result = gather(idsValue);
   write_result(rowIndex, result);
 }
-`,l=new $(r.device,{source:a,shaderLayout:{bindings:[...o.map(({name:p,index:g})=>({name:p,type:"storage",group:0,location:g})),{name:"result",type:"storage",group:0,location:o.length}]}}),u={};t.isConstant||(u.ids=t.buffer),s.isConstant||(u.sourceValues=s.buffer),u.result=r,l.setBindings(u);const d=r.device.beginComputePass({});return l.dispatch(d,c.x,c.y,c.z),d.end(),r.device.submit(),l.destroy(),{success:!0}};function Z(n,e){if(n.isConstant){const s=n.value;if(!s)throw new Error(`Constant input ${n} is missing CPU values`);return`fn read_ids(_rowIndex: u32) -> ${e} {
+`,l=new $(r.device,{source:a,shaderLayout:{bindings:[...o.map(({name:p,index:g})=>({name:p,type:"storage",group:0,location:g})),{name:"result",type:"storage",group:0,location:o.length}]}}),u={};t.isConstant||(u.ids=t.buffer),s.isConstant||(u.sourceValues=s.buffer),u.result=r,l.setBindings(u);const d=r.device.beginComputePass({});return l.dispatch(d,c.x,c.y,c.z),d.end(),r.device.submit(),l.destroy(),{success:!0}};function q(n,e){if(n.isConstant){const s=n.value;if(!s)throw new Error(`Constant input ${n} is missing CPU values`);return`fn read_ids(_rowIndex: u32) -> ${e} {
   return ${L(e,s[0]??0)};
 }`}const r=n.stride/n.ValueType.BYTES_PER_ELEMENT,t=n.offset/n.ValueType.BYTES_PER_ELEMENT;return`fn read_ids(rowIndex: u32) -> ${e} {
   let rowOffset = ${t}u + rowIndex * ${r}u;
   return ids[rowOffset];
-}`}function j(n,e,r,t){const s=f(n),i=f(e);return`fn gather(idsValue: ${s}) -> array<${i}, ${r}> {
+}`}function X(n,e,r,t){const s=f(n),i=f(e);return`fn gather(idsValue: ${s}) -> array<${i}, ${r}> {
   let sourceIndex = ${s==="u32"?"i32(idsValue)":s==="i32"?"idsValue":"i32(idsValue)"};
   if (sourceIndex < 0 || sourceIndex >= ${t}) {
     return zero_result();
@@ -302,10 +302,10 @@ ${j(t.type,e.type,e.size,s.length)}
 }`}const ie=async({inputs:n,output:e,target:r})=>{const{segments:t}=n,s=t.isConstant?[]:[{name:"segments",input:t,index:0}],i=y(Math.ceil(e.length/x),r.device.limits.maxComputeWorkgroupsPerDimension),o=`
 ${s.map(({name:u,input:d,index:p})=>I(u,d,p)).join(`
 `)}
-${N("segments",t,"uint32")}
+${F("segments",t,"uint32")}
 ${T(e,s.length)}
 ${P(e)}
-${q(t.length)}
+${Z(t.length)}
 
 @compute @workgroup_size(${x}) fn main(
   @builtin(workgroup_id) workgroupId: vec3<u32>,
@@ -319,7 +319,7 @@ ${q(t.length)}
   let result = segmented_map(rowIndex);
   write_result(rowIndex, result);
 }
-`,c=new $(r.device,{source:o,shaderLayout:{bindings:[...s.map(({name:u,index:d})=>({name:u,type:"storage",group:0,location:d})),{name:"result",type:"storage",group:0,location:s.length}]}}),a=Object.fromEntries(s.map(({name:u,input:d})=>[u,d.buffer]));a.result=r,c.setBindings(a);const l=r.device.beginComputePass({});return c.dispatch(l,i.x,i.y,i.z),l.end(),r.device.submit(),c.destroy(),{success:!0}};function q(n){return`fn segmented_map(vertexIndex: u32) -> array<u32, 2> {
+`,c=new $(r.device,{source:o,shaderLayout:{bindings:[...s.map(({name:u,index:d})=>({name:u,type:"storage",group:0,location:d})),{name:"result",type:"storage",group:0,location:s.length}]}}),a=Object.fromEntries(s.map(({name:u,input:d})=>[u,d.buffer]));a.result=r,c.setBindings(a);const l=r.device.beginComputePass({});return c.dispatch(l,i.x,i.y,i.z),l.end(),r.device.submit(),c.destroy(),{success:!0}};function Z(n){return`fn segmented_map(vertexIndex: u32) -> array<u32, 2> {
   var low = 0i;
   var high = ${n}i;
   while (low < high) {
