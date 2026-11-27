@@ -32,11 +32,12 @@ sources → pipeline (fetch → harmonize → classify → validate) → golden 
 | Fetch NHTSA SGO files with a provenance log (URL, ETag, SHA-256, row counts) | `pipeline/fetch.py`, `data/registry/` | **Built** |
 | Harmonize the old (2021–Jun 2025) and new (Jun 2025–) NHTSA formats; latest version of each report; group reports into unique crashes | `pipeline/harmonize.py`, `pipeline/schema.py` | **Built** |
 | Transparent failure-pattern tags (each records whether it came from a structured field or the narrative) | `pipeline/classify.py` | **Built** |
-| Curated company disclosures (miles, fleet, subscribers, company-reported safety metrics, investigations, events), each row with a source | `data/manual/`, `pipeline/manual.py` | In progress |
+| Curated company disclosures (miles, fleet, subscribers, company-reported safety metrics, investigations, events), each row with a source | `data/manual/`, `pipeline/manual.py` | **Built** |
 | Golden database: every source column, every report version, explicit missing-value reasons (see [Golden database](#golden-database)) | `pipeline/golden.py`, `pipeline/build_db.py`, `data/golden/` | **Built** |
-| Aggregation + validation gates (a bad update deploys nothing) | `pipeline/aggregate.py`, `validate.py` | **Planned** |
+| Aggregation + validation gates (a bad update deploys nothing) | `pipeline/aggregate.py`, `validate.py`, `exposure.py`, `run.py` | **Built** |
 | Monthly GitHub Action + GitHub Pages deploy | `.github/workflows/` | **Planned** |
-| Dashboard: head-to-head, company tabs, WebGL crash explorer, patterns, city map, transparency | `site/` | **Planned** |
+| Dashboard on GitHub Pages: Overview, Rates (uncertainty bands, scenarios, funnel), WebGL crash explorer, Patterns, Transparency, Impact map, Cities, Timeline, Learning curves, Claims vs filings, Responsibility lens, Data & sources | `site/` | **Built** (deployed to the `gh-pages` branch by hand) |
+| Responsibility pass 1 (rules on structured fields, with a rough narrative audit) | `pipeline/responsibility.py` | **Built** |
 
 Design: [`docs/superpowers/specs/2026-11-26-av-safety-dashboard-design.md`](docs/superpowers/specs/2026-11-26-av-safety-dashboard-design.md).
 Implementation plan: [`docs/superpowers/plans/2026-11-26-av-safety-dashboard.md`](docs/superpowers/plans/2026-11-26-av-safety-dashboard.md).
@@ -145,50 +146,26 @@ SELECT raw FROM reports WHERE report_key = '<Report ID>|v1';
 version and withdrawal tracking, `rules_version`. Planned: filling `labels` (AI avoidability analysis), validation
 gates that run before a build is committed, and the site reading its exports from the golden store.
 
-## Planned work (not yet implemented)
+## Still planned (not yet implemented)
 
 Anyone is welcome to pick these up.
 
-- **AI avoidability analysis.** Classify each incident as *unavoidable by an automated driver*
-  (e.g. struck from behind or the side while stopped) vs. *plausibly the automation's fault*. The
-  data to support it is retained (SV/CP contact areas, pre-crash movement, speed, engagement,
-  narrative where not redacted). Plan: a rules-based first pass on structured fields, then an
-  LLM pass for narratives, stored in a versioned `labels` table with model, prompt version,
-  rationale and evidence fields; labels never overwrite source data.
-- **Responsibility ("who was at fault") lens.** NHTSA records no fault field, so this is an *inference*,
-  always labeled with its evidence basis and confidence, never presented as a finding of fault.
-  Outputs: other party / automated system / human driver (Level 2 only) / indeterminate. Pass 1
-  (built: `pipeline/responsibility.py`, label_set `responsibility_rules_v1`, written to the `labels` table and
-  exported as `responsibility*.json` with a rough keyword audit against readable narratives): rules on structured
-  fields (SV/CP contact areas, pre-crash movements, speed, crash-with).
-  The rules (`responsibility_rules.json`): the other-party rules (RESP-OTH-1 to 4) require the crash partner to be
-  another road user, not a fixed object, pole, tree or animal; rear-only contact with an unclear SV movement is
-  RESP-OTH-4 (medium, backing cannot be ruled out); a lane departure that conflicts with the other fields (rear-only
-  contact, or a wrong-way / opposing-lane partner) is RESP-IND-2 (indeterminate); one narrative-basis guard,
-  RESP-NAR-1, turns OTH-1/SUB-3 into indeterminate when a readable narrative mentions a rider opening a door or
-  exiting; RESP-SUB-4 (low) was retired after the audit and is kept in `retired_rules`.
-  Pass 2: an LLM reads narratives where they are not redacted (Waymo, Zoox, Cruise; almost none
-  for Tesla) and is used to calibrate and audit pass 1. For Level 2 programs, driver vs. system cannot
-  be separated from NHTSA data; the lens says so rather than guessing. Stored in the `labels` table.
-- **More compound views (planned tabs):** exposure learning curves (rate vs cumulative miles); a car-outline
-  impact heatmap (contact areas by program, filterable by speed and severity); a movement → partner →
-  contact → severity → inferred-responsibility Sankey; per-city rates (SGO city counts joined with
-  Waymo's per-city miles); a timeline overlay of launches, recalls, investigations and rule changes on rate
-  curves; company-reported vs. NHTSA-derived rates side by side with the 5 s / 30 s window gap shown;
-  an "investigation lens" that filters the explorer to the scenario a probe describes (e.g. EA26002 reduced
-  visibility); redaction-aware uncertainty bounds (e.g. Tesla's ~94% unknown injury severity).
-- **Statistical views:** exact Poisson intervals on every rate, funnel plots for comparing companies with very
-  different volumes, reporting-lag correction, low-sample warnings (e.g. GM after Cruise's shutdown).
-- **Interactive and WebGL views:** a crash explorer (every incident a point, selectable axes,
-  cross-filtering, sankey of movement → partner → severity), failure-pattern/conditions
-  heatmaps, speed distributions, a 3D city-level map, a transparency matrix of what each company
-  withholds.
-- **Scenario controls** (shareable via URL): 5 s vs 30 s window, fleet denominator (total equipped
-  vs active paid users), estimated mileage for non-disclosing companies, reporting-lag multiplier.
-- **Alternative front ends.** Because the site only reads the golden database, other visualization
-  stacks (React, Svelte, Observable, custom WebGL) can live in parallel.
-- **Monthly automation:** scheduled GitHub Action + manual run button, validation that blocks
-  a bad update, changelog of what changed each month.
+- **Automatic monthly deploy.** A scheduled GitHub Action plus a manual run button: run `python3 -m pipeline.run`,
+  commit data, build `site/`, deploy Pages (today the build is deployed by hand to `gh-pages`). Needs a token with the
+  `workflow` scope (`gh auth refresh -s workflow`).
+- **Responsibility pass 2.** An LLM reads narratives where they are not redacted (Waymo, Zoox, Cruise; almost none for
+  Tesla) to label crashes and to audit and tune the pass-1 rules; results go in the versioned `labels` table with model,
+  prompt version, rationale and evidence. For Level 2 programs, driver vs. system cannot be separated from NHTSA data;
+  the lens says so rather than guessing. Pass 1 rules are documented in `responsibility_rules.json`
+  (RESP-OTH-1..4, SUB-1..3, IND-1..4, NAR-1; SUB-4 retired after the audit).
+- **Better exposure data.** Lifetime cumulative miles per program (the learning curves currently use miles since the
+  first disclosure), Tesla Autopilot-only miles (not disclosed), Zoox miles, California DMV 2025 and CPUC data,
+  Waymo launch dates, US-only splits of Super Cruise miles. Monthly mileage splits flagged ">3x" are unreliable.
+- **A derived `pii_withheld` flag** (VIN, ZIP, exact location are kept raw-only today), a `narrative_readable` column
+  in the responsibility export, and an `includeOther` scenario control.
+- **Alternative front ends.** The site only reads the golden database exports, so other visualization stacks
+  (Svelte, Observable, custom WebGL) can live in parallel.
+- **Redaction-aware uncertainty bounds** (e.g. Tesla's ~94% unknown injury severity) on severity charts.
 
 ## Usage
 
