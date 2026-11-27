@@ -36,8 +36,9 @@ sources → pipeline (fetch → harmonize → classify → validate) → golden 
 | Golden database: every source column, every report version, explicit missing-value reasons (see [Golden database](#golden-database)) | `pipeline/golden.py`, `pipeline/build_db.py`, `data/golden/` | **Built** |
 | Aggregation + validation gates (a bad update deploys nothing) | `pipeline/aggregate.py`, `validate.py`, `exposure.py`, `run.py` | **Built** |
 | Monthly GitHub Action + GitHub Pages deploy | `.github/workflows/` | **Planned** |
-| Dashboard on GitHub Pages: Overview, Rates (uncertainty bands, scenarios, funnel), WebGL crash explorer, Patterns, Transparency, Impact map, Cities, Timeline, Learning curves, Claims vs filings, Responsibility lens, Data & sources | `site/` | **Built** (deployed to the `gh-pages` branch by hand) |
+| Dashboard on GitHub Pages: Overview, Rates (uncertainty bands, scenarios, funnel), Improving? (before/after the 2025-06-16 rule change), WebGL crash explorer, Patterns (tags, incident mix over time, time of day), Transparency (incl. reporting completeness and revisions), Impact map, Cities, Timeline, Learning curves, Claims vs filings, Responsibility lens (crash-level, over time), Data & sources | `site/` | **Built** (deployed to the `gh-pages` branch by hand) |
 | Responsibility pass 1 (rules on structured fields, with a rough narrative audit) | `pipeline/responsibility.py` | **Built** |
+| Derived per-crash fields: threshold-robust class (`robust`), local `hour` (Tesla converted from UTC), `light_condition` from time when Lighting is missing; `revisions.json`; reporting-lag curves per regime; "Verified Not Engaged" reports kept out of crash counts | `pipeline/derive.py`, `pipeline/aggregate.py` | **Built** |
 
 Design: [`docs/superpowers/specs/2026-11-26-av-safety-dashboard-design.md`](docs/superpowers/specs/2026-11-26-av-safety-dashboard-design.md).
 Implementation plan: [`docs/superpowers/plans/2026-11-26-av-safety-dashboard.md`](docs/superpowers/plans/2026-11-26-av-safety-dashboard.md).
@@ -64,8 +65,15 @@ Implementation plan: [`docs/superpowers/plans/2026-11-26-av-safety-dashboard.md`
 - California DMV testing miles (Dec-Nov years, including safety drivers) are an informational series only: never a denominator.
 - Per-vehicle rates are per **vehicle-year** (partial years flagged); Tesla L2 gets no per-mile series unless the user sets a
   miles-per-vehicle assumption; recent months whose reports are still arriving are drawn hatched or dotted.
-- NHTSA reporting rules changed on **2025-06-16**; the break is marked on time charts, so a drop is
-  not read as improvement.
+- NHTSA reporting rules changed on **2025-06-16** (minor ADS crashes and Level 2 tow-only crashes stopped being
+  reportable). Time charts count **threshold-robust crashes** by default (any injury, an air bag, a tow-away for ADS, or a
+  pedestrian/cyclist: reportable under both rules; unknown counts as not met, so it is a lower bound), lines are not
+  joined across the break, and before/after comparisons (Improving?) never pool the two regimes. Reporting-lag curves
+  are estimated per regime. "All reportable crashes" stays available as a toggle.
+- **Tesla files incident times in UTC**; every other reporter uses local time. Hours are converted to the state's main
+  time zone (daylight saving by month); the evidence (recorded Lighting agreement 55% as filed vs 99% converted) is in
+  `meta.json` and on Data & sources. Light condition after 2025-06-15 is derived from time (approximate, one US-wide sun table).
+- Reports NHTSA marks **Verified Not Engaged** (84) are not counted as crashes; they are counted separately.
 - Tesla redacts most narratives and its software version as confidential business information,
   so Autopilot vs FSD cannot be separated in NHTSA data, and description-based failure tags are
   unavailable for Tesla.
@@ -174,6 +182,10 @@ Anyone is welcome to pick these up.
 - **Alternative front ends.** The site only reads the golden database exports, so other visualization stacks
   (Svelte, Observable, custom WebGL) can live in parallel.
 - **Redaction-aware uncertainty bounds** (e.g. Tesla's ~94% unknown injury severity) on severity charts.
+- **Round-2 review items not yet done:** an hour axis/filter and hexbin in the crash explorer; claims reconciliation
+  panels; a known-only severity bar on Overview; month/severity revisions in the changelog; a Waymo "US minus disclosed
+  areas" row on Cities; a clickable coverage matrix and default funnel on Rates; Impact map small multiples and a time
+  filter; per-year selection on Transparency (a pooled-years caveat is shown instead); tab grouping.
 
 ## Usage
 
