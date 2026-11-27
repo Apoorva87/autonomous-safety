@@ -141,8 +141,9 @@ export function verdict(r: RateRatio | null, opts: { estimate?: boolean } = {}):
   if (r.lo <= 1 && r.hi >= 1) {
     return { code: 'no_change', text: `No detectable change (${range}): anything from ${pctChange(r.lo)} to ${pctChange(r.hi)} is consistent with the data.${tail}` };
   }
-  if (r.hi < 1) return { code: 'lower', text: `Reported rate lower after 2025-06-16 (${range}).${tail}` };
-  return { code: 'higher', text: `Reported rate higher after 2025-06-16 (${range}).${tail}` };
+  const caveat = ' This describes reported counts only: reporting practice, fleet mix and the denominator can all move a reported rate.';
+  if (r.hi < 1) return { code: 'lower', text: `Reported rate lower after 2025-06-16 (${range}).${tail}${caveat}` };
+  return { code: 'higher', text: `Reported rate higher after 2025-06-16 (${range}).${tail}${caveat}` };
 }
 
 /** Standard normal CDF (Abramowitz-Stegun 7.1.26 erf, |error| < 1.5e-7). */
