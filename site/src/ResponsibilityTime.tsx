@@ -114,7 +114,7 @@ function ProgramTime({ program, series, mode }: { program: string; series: HalfP
     const breakIdx = cats.indexOf('2025H1');
     const postFrom = cats.indexOf('2025H2');
     const pct = (v: number | null | undefined) => (v == null ? null : v * 100);
-    const shade = postFrom >= 0 ? { silent: true, itemStyle: { color: t.grid, opacity: 0.55 }, data: [[{ xAxis: postFrom - 0.5 }, { xAxis: cats.length - 0.5 }]] } : undefined;
+    const shade = postFrom >= 0 ? { silent: true, itemStyle: { color: t.faint, opacity: 0.14 }, data: [[{ xAxis: postFrom - 0.5 }, { xAxis: cats.length - 0.5 }]] } : undefined;
     const breakLine = breakIdx >= 0 ? { silent: true, symbol: 'none', label: { show: false }, lineStyle: { color: mode === 'dark' ? '#e0693a' : '#b3361a', type: 'dashed', width: 1.5 }, data: [{ xAxis: breakIdx + 0.5 }] } : undefined;
     return {
       animation: false, textStyle: { color: t.muted },
@@ -183,7 +183,7 @@ function WaymoPerMile({ crashes, data, mode }: { crashes: CrashLabel[]; data: Da
     const pts = monthlySeries(counts, rates.exposure, plain, { program: 'waymo_ads', region: 'us', metric: 'perM', lastMonth: rates.lastMonth, lag: rates.lag.waymo_ads });
     const months = usableMonths(pts, rates.lag.waymo_ads, rates.lastMonth);
     const cs = countedCrashes(data.crashes, 'waymo_ads', scenario.riderOnly);
-    const is = (l: string) => ({ id: 'robust' as const, label: l, threshold: false, test: (c: { incident_key: string }) => label.get(c.incident_key) === l });
+    const is = (l: string) => ({ id: 'robust' as const, label: l, threshold: l === 'other_party', test: (c: { incident_key: string }) => label.get(c.incident_key) === l });
     const own = is('subject_vehicle_initiated');
     const other = is('other_party');
     return {

@@ -134,7 +134,7 @@ export function artifactsFor(program: string, dim: DimId): Artifact[] {
   ];
   if (dim === 'tag') out.push({ id: 'lighting', from: '2025H2', text: 'The reduced-visibility tag reads the Lighting field, which is not collected after 2025-06-15, so that tag can only fire from weather after the change (drawn dashed after it).' });
   if (program === 'tesla_l2' && ['movement', 'partner', 'road', 'impact', 'tag'].includes(dim)) {
-    out.push({ id: 'tesla-unknown', from: '2024H1', text: 'Tesla: from 2024 Q2 about 40% of reports have movement, partner and road type all Unknown, because Tesla stopped filing the follow-up versions that used to fill them in. Shares of all reports fall for that reason alone; use "among known" and read even that with care (which reports carry fields changed too).' });
+    out.push({ id: 'tesla-unknown', from: '2024H1', text: 'Tesla: from 2024 Q2 the share of reports with movement, partner and road type all Unknown rose from about 3% to 37-41%, because Tesla stopped filing the follow-up versions that used to fill them in. Shares of all reports fall for that reason alone; use "among known" and read even that with care (which reports carry fields changed too).' });
   }
   if (dim === 'light') out.push({ id: 'light', from: '2021H2', text: 'Light condition is derived from the incident time and month with a one-hour twilight band (approximate), the same way in both regimes; Tesla times are converted from UTC.' });
   return out;

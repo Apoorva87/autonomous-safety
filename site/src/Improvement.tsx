@@ -79,14 +79,17 @@ function Loaded({ data, rates, mode }: { data: Data; rates: RatesData; mode: Mod
   const color = colorOf(PROGRAM_BY_KEY[program].color, mode);
   const kindPrograms = KIND_GROUPS.find((g) => g.id === kind)!.programs;
 
-  const forestItems: ForestItem[] = (sel?.rows ?? []).map((r) => ({
+  const forestItems: ForestItem[] = (sel?.rows ?? []).map((r) => {
+    const empty = r.verdict.code === 'no_denominator' || r.verdict.code === 'insufficient' ? r.verdict.text : undefined;
+    return {
     key: r.numerator.id,
     label: <>{r.numerator.label}{r.numerator.note && <span className="small"> {r.numerator.note}</span>}</>,
     aria: `${r.numerator.label}: rate ratio ${r.rr.rr?.toFixed(2) ?? 'n/a'}, 95% interval ${r.rr.lo?.toFixed(2) ?? '?'} to ${r.rr.hi?.toFixed(2) ?? 'no upper bound'}`,
     rr: r.rr.rr, lo: r.rr.lo, hi: r.rr.hi, color: r.numerator.threshold ? t.muted : color, affected: r.numerator.threshold,
-    empty: r.verdict.code === 'no_denominator' || r.verdict.code === 'insufficient' ? r.verdict.text : undefined,
-    right: r.rr.rr != null ? <><b>{r.rr.rr.toFixed(2)}×</b> <span className="small">[{r.rr.lo?.toFixed(2) ?? '?'}, {r.rr.hi?.toFixed(2) ?? '∞'}]</span></> : null,
-  }));
+    empty,
+    right: r.rr.rr != null && !empty ? <><b>{r.rr.rr.toFixed(2)}×</b> <span className="small">[{r.rr.lo?.toFixed(2) ?? '?'}, {r.rr.hi?.toFixed(2) ?? '∞'}]</span></> : null,
+  };
+  });
 
   const programItems: ForestItem[] = kindPrograms.map((p) => {
     const res = results[p];
@@ -149,6 +152,7 @@ function Loaded({ data, rates, mode }: { data: Data; rates: RatesData; mode: Mod
             <div className={`verdict ${robustRow ? VERDICT_CLASS[robustRow.verdict.code] : ''}`} role="status">
               <span className="verdict-key">Threshold-robust crashes</span>
               <b>{robustRow?.verdict.text}</b>
+              {setup.metric === 'per10kVeh' && <span className="small"><b>Per vehicle-year, not per mile.</b> Miles driven with the system engaged per vehicle changed fast over these years, and the fleet estimate changes definition, so this is not a safety rate.</span>}
               {robustRow && robustRow.pre.rate != null && robustRow.post.rate != null && (
                 <span className="small">
                   Before: {fmt(robustRow.pre.k)} crashes over {fmtNum(robustRow.pre.e)} {setup.metric === 'per10kVeh' ? 'vehicle-years' : 'miles'} = {fmtNum(robustRow.pre.rate)} {setup.unit} [{fmtNum(robustRow.pre.lo)}, {fmtNum(robustRow.pre.hi)}]
@@ -157,7 +161,9 @@ function Loaded({ data, rates, mode }: { data: Data; rates: RatesData; mode: Mod
               )}
               {allRow && allRow.rr.rr != null && (
                 <span className="small">
-                  For comparison, all reportable crashes: {fmtNum(allRow.pre.rate)} before and {fmtNum(allRow.post.rate)} after ({allRow.rr.rr.toFixed(2)}×), a drop the reporting change produces by itself.
+                  For comparison, all reportable crashes: {fmtNum(allRow.pre.rate)} before and {fmtNum(allRow.post.rate)} after ({allRow.rr.rr.toFixed(2)}×){allRow.rr.rr < 1
+                    ? ', a drop the reporting change produces by itself.'
+                    : '. That count is also affected by the reporting change, so the threshold-robust rate above is the one to compare.'}
                 </span>
               )}
             </div>
@@ -212,7 +218,7 @@ function QuarterChart({ res, unit, color, mode }: { res: ProgramResult; unit: st
     const a = at(res.quarters.all, 'rate');
     return {
       animation: false, textStyle: { color: t.muted },
-      grid: { left: 46, right: 12, top: 18, bottom: 54 },
+      grid: { left: 46, right: 12, top: 30, bottom: 54 },
       tooltip: {
         trigger: 'axis', confine: true, backgroundColor: t.surface, borderColor: t.rule, textStyle: { color: t.ink },
         formatter: (ps: any) => {

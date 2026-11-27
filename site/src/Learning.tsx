@@ -151,7 +151,7 @@ function LearningPanel({
       const lineData: (number | null)[][] = [];
       pts.forEach((p, i) => {
         const prev = pts[i - 1];
-        if (prev && (prev.straddlesBreak || p.straddlesBreak || (prev.period < '2025-06' && p.period > '2025-06'))) lineData.push([Math.sqrt(prev.cumMiles * p.cumMiles), null]);
+        if (prev && (prev.straddlesBreak || p.straddlesBreak || (prev.months[prev.months.length - 1] < '2025-06' && p.months[0] > '2025-06'))) lineData.push([Math.sqrt(prev.cumMiles * p.cumMiles), null]);
         lineData.push([p.cumMiles, yv(p, 'v')]);
       });
       series.push({

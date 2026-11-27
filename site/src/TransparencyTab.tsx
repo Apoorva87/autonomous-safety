@@ -3,6 +3,8 @@ import type { Data } from './data';
 import { fmt, pct } from './data';
 import { EChart, SourceNote } from './EChart';
 import { FIELD_LABEL, PROGRAMS, ui, type Mode } from './theme';
+import { useNarrow } from './Patterns';
+import { Completeness } from './Completeness';
 
 type Metric = 'withheld' | 'unknown' | 'redacted' | 'provided';
 const METRICS: { id: Metric; label: string; blurb: string }[] = [
@@ -22,6 +24,7 @@ export function TransparencyTab({ data, mode }: { data: Data; mode: Mode }) {
   const tr = data.transparency;
   const [metric, setMetric] = useState<Metric>('withheld');
   const programs = PROGRAMS.filter((p) => tr.programs.includes(p.key));
+  const narrow = useNarrow();
 
   const option = useMemo(() => {
     const value = (p: string, f: string): number | null => {
@@ -44,7 +47,7 @@ export function TransparencyTab({ data, mode }: { data: Data; mode: Mode }) {
     }
     return {
       animation: false,
-      grid: { left: 108, right: 6, top: 118, bottom: 4 },
+      grid: { left: narrow ? 92 : 108, right: 6, top: 118, bottom: 4 },
       tooltip: {
         confine: true,
         formatter: (p: { value: [number, number, number | string] }) => {
@@ -91,7 +94,7 @@ export function TransparencyTab({ data, mode }: { data: Data; mode: Mode }) {
         },
       ],
     };
-  }, [tr, programs, metric, mode, t]);
+  }, [tr, programs, metric, mode, t, narrow]);
 
   return (
     <section>
@@ -111,13 +114,23 @@ export function TransparencyTab({ data, mode }: { data: Data; mode: Mode }) {
         </fieldset>
       </div>
       <p className="prose small">{METRICS.find((m) => m.id === metric)!.blurb}</p>
-      <EChart height={118 + 4 + programs.length * 36} label="Heatmap of missing information by program and field" option={option} />
+      {narrow && <p className="small scroll-hint">Scroll the heatmap sideways to see every field.</p>}
+      <div className="scroll-x">
+        <div style={{ minWidth: narrow ? 760 : undefined }}>
+          <EChart height={118 + 4 + programs.length * 36} label="Heatmap of missing information by program and field" option={option} />
+        </div>
+      </div>
       <p className="prose small">
         * Lighting, road surface and speed limit are only collected in reports filed through 2025-06-15. Their shares
         use only those older reports, and are blank where a program has none. Share is of reports (latest version of
         each), not of unique crashes.
       </p>
+      <p className="callout small" role="note">
+        <b>These shares pool every year.</b> Missingness is not stable for every filer: Tesla&rsquo;s pre-crash movement was unknown in about 6% of 2023 reports and about 58% of 2026 reports, because it
+        stopped filing the revisions that filled it in. A pooled cell averages two reporting practices; the section below shows the change over time.
+      </p>
       <SourceNote date={data.meta.fetched_date} />
+      <Completeness mode={mode} lastMonth={data.meta.last_month} />
     </section>
   );
 }
