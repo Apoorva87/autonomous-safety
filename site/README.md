@@ -1,12 +1,13 @@
-# Autonomous Safety: site (preview)
+# Autonomous Safety: site
 
 Vite + React + TypeScript. ECharts for the 2D charts, deck.gl (WebGL) for the crash explorer.
-This first preview shows crash **counts and structure only**; normalized rates need sourced
-mileage and fleet data, which is still being researched. Every tab says so.
+Counts, scope-matched rates with exact Poisson intervals, compound views (impact map, cities, timeline,
+learning curves, claims vs filings, responsibility lens) and a data and sources tab. Level 2 and ADS
+programs are never shown on one axis (see `src/lib/kinds.ts`).
 
 ## Data
 
-The site currently reads four static JSON files from `public/data/` (the pipeline writes thirteen; see the root README), produced by the Python pipeline
+The site reads the static JSON files in `public/data/` (see the root README for the full list), produced by the Python pipeline
 (standard library only) from the raw NHTSA CSVs in `../data/raw/`:
 
 ```bash
@@ -15,8 +16,8 @@ npm run data        # same as: cd .. && python3 -m pipeline.run --offline
 
 | File | Contents |
 |---|---|
-| `records.json` | One row per unique crash (columnar `{fields, rows}`), no narratives, with tags and speed band |
-| `counts.json` | program x month x severity counts of unique crashes |
+| `records.json` | One row per (program, incident) (columnar `{fields, rows}`): the program's own report, no narratives, with tags, speed band, operator type |
+| `counts.json` | program x month x severity counts of crashes per program (per-program totals equal the `records.json` rows) |
 | `transparency.json` | program x field shares of provided / unknown / redacted |
 | `meta.json` | NHTSA last-modified, fetch log (URL, SHA-256, rows), totals, tag rules |
 

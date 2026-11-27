@@ -53,8 +53,17 @@ Implementation plan: [`docs/superpowers/plans/2026-11-26-av-safety-dashboard.md`
 
 ### Known data caveats (read before drawing conclusions)
 
-- SGO counts reportable crashes within a **30-second** engagement window; Tesla's own report uses
-  a **5-second** window. The two are never put in one series.
+- **Level 2 and ADS programs are not comparable.** SGO reporting thresholds differ: a Level 2 crash is
+  reportable only with a severity, vulnerable-road-user, airbag or tow-away criterion, an ADS crash at almost any
+  contact. The site never puts the two kinds on one axis, funnel, ranking or overlaid line (kind groups: ADS =
+  Waymo, GM Cruise, Zoox, Tesla Robotaxi, other ADS; L2 = Tesla Autopilot/FSD, GM Super Cruise, other L2).
+- SGO reports (ADS and L2 alike) use a **30-second** engagement window; Tesla's own Vehicle Safety Report counts
+  crashes with Autopilot active, or deactivated, within **5 seconds** before impact. The two are never put in one series.
+- Waymo, Cruise, Zoox and Tesla Robotaxi miles are **rider-only**: by default their rates count only crashes whose
+  operator type is none or remote, and the number excluded is shown (scenario toggle).
+- California DMV testing miles (Dec-Nov years, including safety drivers) are an informational series only: never a denominator.
+- Per-vehicle rates are per **vehicle-year** (partial years flagged); Tesla L2 gets no per-mile series unless the user sets a
+  miles-per-vehicle assumption; recent months whose reports are still arriving are drawn hatched or dotted.
 - NHTSA reporting rules changed on **2025-06-16**; the break is marked on time charts, so a drop is
   not read as improvement.
 - Tesla redacts most narratives and its software version as confidential business information,
@@ -69,7 +78,7 @@ Implementation plan: [`docs/superpowers/plans/2026-11-26-av-safety-dashboard.md`
 
 The durable asset. Every column of every SGO report version is kept, merged into one format, and
 nothing is silently blank. Built by `python3 -m pipeline.build_db [--run-id ID]` into `data/golden/`
-(about 6 s). Run it once per refresh, and **only after the validation gate (Task 5) has passed**: a
+(about 6 s). Run it once per refresh, and **only after the validation gate (`pipeline.run`) has passed**: a
 build records a run and commits to whatever the raw files contain. Unchanged reports are not
 rewritten, so a refresh only diffs rows that are new, changed or removed, plus one new line in
 `runs.jsonl`. The JSONL files are written atomically (temp files, then rename).
@@ -86,7 +95,7 @@ is **not committed** (git-ignored; rebuild it with the command above).
 | `incidents` | `incident_key` (Same Incident ID, else `solo:<id>`) | Member `report_ids`, all `report_keys`, `latest_report_keys`, companies, programs, month, max severity. |
 | `sources`, `exposure`, `company_reported`, `investigations`, `events`, `cadence` | the hand-curated rows of `data/manual/` | Copied unchanged (including `region`, `recall_units`, `date_precision`). |
 | `runs` | build | Run id, `rules_version`, NHTSA `Last-Modified` and SHA-256 per file, row counts, placeholder rows, unmapped labels. |
-| `labels` | (report version, label set) | Reserved for the future AI avoidability analysis. **Keyed by `report_key`, i.e. per report version**, a deliberate deviation from the spec sketch (which said `report_id`), so a label always points at the exact text it judged. Created empty, and the builder never writes or deletes label rows once present. Columns: `report_key, label_set, label, rationale, evidence_fields, model, prompt_version, run_at`. |
+| `labels` | (report version, label set) | Reserved for the future AI avoidability analysis. **Keyed by `report_key`, i.e. per report version**, a deliberate deviation from the spec sketch (which said `report_id`), so a label always points at the exact text it judged. The builder never writes or deletes label rows once present; pass-1 rule labels are written by `pipeline.responsibility`. Columns: `report_key, label_set, label, rationale, evidence_fields, model, prompt_version, run_at`. |
 
 **Field status.** Each normalized field has one of five statuses in `reports.status`. The UI shows
 the last four as "unavailable" and the status as the reason.
@@ -143,8 +152,7 @@ SELECT raw FROM reports WHERE report_key = '<Report ID>|v1';
 ```
 
 **Built vs planned.** Built: the tables above, the JSONL store (atomic writes), sqlite compile, field statuses,
-version and withdrawal tracking, `rules_version`. Planned: filling `labels` (AI avoidability analysis), validation
-gates that run before a build is committed, and the site reading its exports from the golden store.
+version and withdrawal tracking, `rules_version`. Planned: filling `labels` with the AI avoidability analysis (pass 2). The validation gates run before a build is committed (`pipeline.run`), and the site reads the exports built from the golden store.
 
 ## Still planned (not yet implemented)
 
@@ -182,7 +190,7 @@ python3 -m pipeline.build_db                        # build the golden database 
 files and manual tables (`pipeline/validate.py`: header drift, unmapped labels, row-count and report
 drops, a vanished entity, parse failures, duplicate report versions, unresolved sources, counts that do
 not add up) and, on any error, prints it, exits 1 and writes **nothing**. Otherwise it builds the
-golden database and writes the site files (`records`, `narratives`, `counts`, `lag`, `exposure`,
+golden database and writes the site files (`records`, one row per program and incident, `narratives`, `counts`, `lag`, `exposure`,
 `company_reported`, `sources`, `investigations`, `events`, `rules`, `transparency`, `meta`,
 `changelog`). Warnings (stale disclosures, new entities, >50% monthly swings) go to `meta.json` and the
 console. `--offline` reuses `data/raw/`.
