@@ -75,7 +75,7 @@ describe('Waymo before/after on the published data', () => {
     const rows = forestRows(countedCrashes(crashes, 'waymo_ads'), months, 1e6);
     const robust = rows.find((r) => r.numerator.id === 'robust')!;
     const all = rows.find((r) => r.numerator.id === 'all')!;
-    expect(robust.pre.e).toBe(65740177);
+    expect(robust.pre.e).toBe(86939177); // 2023-02..2025-05 since the 2023 Waymo disclosures were added
     expect(robust.post.e).toBe(175363998);
     expect(robust.rr.lo!).toBeLessThan(1);
     expect(robust.rr.hi!).toBeGreaterThan(1);

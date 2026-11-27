@@ -26,7 +26,7 @@ const CAVEATS: [string, string][] = [
   ['Fields that exist in one era only', 'Lighting, road surface and speed limit are collected only through 2025-06-15; hospitalization is spelled out only from 2025-06-16 (so it is never true before). Any chart that uses them shows a false onset or end at the change; the light condition derived from time is the comparable alternative.'],
   ['Rider-only miles', 'Waymo, Cruise, Zoox and Tesla Robotaxi miles are rider-only (no human driver on board). By default their rates count only crashes whose operator type is none or remote; crashes with an in-vehicle operator are left out and the number excluded is shown. The scenario panel can turn this off.'],
   ['California DMV miles are not a denominator', 'California DMV autonomous-testing miles cover Dec-Nov reporting years and include testing with safety drivers, so they cannot be matched to SGO crashes (calendar months, all operations). They appear as an informational series labelled "CA DMV testing miles, Dec–Nov, not comparable with SGO crashes", never as a rate.'],
-  ['Estimates are labelled', 'Every exposure figure is tagged reported, derived or estimate. Where no mileage is disclosed (Tesla Autopilot/FSD in the US), no per-mile rate is drawn unless you set a miles-per-vehicle assumption yourself, and the result is badged as your assumption. Per-vehicle rates are per vehicle-year, with partial years flagged.'],
+  ['Estimates are labelled', 'Every exposure figure is tagged reported, derived or estimate. Where no mileage is disclosed (Zoox, other reporters, Tesla before 2024-10), no per-mile rate is drawn; a miles-per-vehicle assumption you set yourself is badged as your assumption. Tesla\'s per-mile rates use FSD (Supervised) miles only, while its NHTSA counts include Autopilot. Per-vehicle rates are per vehicle-year, with partial years flagged.'],
   ['Recent months are incomplete', 'Reports arrive weeks after a crash. Months whose reports are usually less than 90% filed are drawn dotted or hatched and marked "late reports"; a dip there is not an improvement. The late-report adjustment in the scenario panel is optional and off by default.'],
   ['Month-level dates only', 'Incident dates are published as month and year. Exact location is redacted; the city is the finest place available.'],
   ['Redactions', 'Tesla redacts almost every narrative and its software version as confidential business information, so Autopilot and FSD cannot be told apart in this data, and narrative-based tags are unavailable for Tesla.'],
@@ -306,7 +306,7 @@ function DerivedClasses({ data }: { data: Data }) {
           </ul>
           <b>Uncertainty.</b>
           <ul>{rd.uncertainty.map((u) => <li key={u}>{u}</li>)}</ul>
-          A crash is robust when any of the program&rsquo;s own reports of it meets a criterion. It is the default numerator on every time chart (Rates, Timeline, Learning, Cities, Improving?).
+          A crash is robust when any of the program&rsquo;s own reports of it meets a criterion. It is the default numerator on every time chart (Rates, Timeline, Cities, Before / after).
         </div>
       )}
       {ne && (

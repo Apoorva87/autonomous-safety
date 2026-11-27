@@ -3,6 +3,7 @@ import type { Data } from './data';
 import { fmt } from './data';
 import { EChart, SourceNote } from './EChart';
 import { KindCaveat } from './components/KindCaveat';
+import { RateTrends } from './RateTrends';
 import { kindOf, type KindId } from './lib/kinds';
 import {
   PROGRAMS,
@@ -106,11 +107,19 @@ export function Overview({ data, mode }: { data: Data; mode: Mode }) {
 
   return (
     <section>
+      <h2>Crash rates, every program</h2>
+      <p className="prose">
+        Crashes filed with NHTSA divided by the miles each company has disclosed, for every program with a disclosed mileage figure. Driverless and driver-assist
+        programs are drawn in separate panels because they report different crashes (driver-assist programs report only crashes with an injury, air bag, tow-away or
+        pedestrian), so their levels are not comparable. A rate is not a finding of safety or fault.
+      </p>
+      <RateTrends data={data} mode={mode} />
+
       <h2>Crashes per month, by program</h2>
       <p className="prose">
         Each bar is the number of crashes a program filed (reports of one crash by one program are merged) with an incident in that month.
-        Counts are not rates: programs differ enormously in miles driven and fleet size, so this page does not rank them. Rates with intervals are on the
-        Rates tab, and <a href="#improving">Improving?</a> compares each program before and after the 2025-06-16 rule change.
+        Counts are not rates: programs differ enormously in miles driven and fleet size, so this page does not rank them. Rates with intervals are on the{' '}
+        <a href="#rates">Rate explorer</a>, and <a href="#improving">Before / after</a> compares each program before and after the 2025-06-16 rule change.
       </p>
       <KindCaveat extra="Each panel has its own scale; the shared-scale option below only equalises panels of the same kind." />
       <div className="controls">
@@ -266,7 +275,7 @@ function severityOption(data: Data, mode: Mode) {
     yAxis: {
       type: 'category',
       inverse: true,
-      data: keys.map((k) => PROGRAM_BY_KEY[k].short),
+      data: keys.map((k) => `${PROGRAM_BY_KEY[k].short}\n${fmt(sum(k))} crashes`),
       axisLine: { show: false },
       axisTick: { show: false },
       axisLabel: { color: t.ink, fontSize: 12 },
@@ -282,7 +291,9 @@ function severityOption(data: Data, mode: Mode) {
         fontSize: 10,
         color:
           sev === 'none' || sev === 'minor' || (sev === 'unknown' && mode === 'light') ? '#15191d' : '#ffffff',
-        formatter: (p: { value: number }) => (p.value >= 0.08 ? Math.round(p.value * 100) + '%' : ''),
+        // Share with the count in brackets where the segment is wide enough; the share alone in narrower ones.
+        formatter: (p: { value: number; data: { n: number } }) =>
+          p.value >= 0.15 ? `${Math.round(p.value * 100)}% (${fmt(p.data.n)})` : p.value >= 0.07 ? Math.round(p.value * 100) + '%' : '',
       },
       data: keys.map((k) => {
         const n = totals[k][sev] ?? 0;

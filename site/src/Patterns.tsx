@@ -8,6 +8,12 @@ import { setQuery, useQuery } from './state/scenario';
 import { MixView } from './MixView';
 import { TimeOfDay } from './TimeOfDay';
 import { RegimeBadge } from './components/Regime';
+import { useRatesData } from './data/rates';
+import { defaultRegion } from './Rates';
+
+/** 271,329,000 -> "271M", 13,137,065,652 -> "13.1B". */
+export const fmtMiles = (x: number) =>
+  x >= 1e9 ? `${+(x / 1e9).toFixed(x >= 1e10 ? 1 : 2)}B` : x >= 1e6 ? `${+(x / 1e6).toFixed(x >= 1e8 ? 0 : 1)}M` : x >= 1e3 ? `${Math.round(x / 1e3)}k` : String(Math.round(x));
 
 /** True below `px` CSS pixels (updates on resize). */
 export function useNarrow(px = 600): boolean {
@@ -59,6 +65,26 @@ function TagHeatmap({ data, mode }: { data: Data; mode: Mode }) {
   const regime = (['pre', 'post'].includes(params.get('pr') ?? '') ? params.get('pr') : 'all') as RegimeSel;
   const narrow = useNarrow();
 
+  const { rates } = useRatesData();
+  // Miles behind each row: the program's disclosed monthly miles (its rate region) summed over the months in view.
+  const miles = useMemo(() => {
+    const out: Record<string, { total: number; first: string; last: string } | null> = {};
+    if (!rates) return out;
+    for (const p of PROGRAMS) {
+      const region = defaultRegion(rates, p.key, 'perM');
+      const rows = rates.exposure.filter((r) => r.program === p.key && r.region === region && r.metric === 'miles' && r.period.length === 7 && inRegime(r.period, regime));
+      out[p.key] = rows.length
+        ? { total: rows.reduce((a, r) => a + r.value, 0), first: rows.map((r) => r.period).sort()[0], last: rows.map((r) => r.period).sort().slice(-1)[0] }
+        : null;
+    }
+    return out;
+  }, [rates, regime]);
+  const milesText = (k: string) => {
+    const m = miles[k];
+    if (!rates) return '';
+    return m ? `${fmtMiles(m.total)} mi · ${m.first} to ${m.last}` : 'no miles disclosed';
+  };
+
   const stats = useMemo(() => {
     const programs = PROGRAMS.filter((p) => data.counts.programs.includes(p.key));
     const total: Record<string, number> = {};
@@ -103,7 +129,7 @@ function TagHeatmap({ data, mode }: { data: Data; mode: Mode }) {
     }
     return {
       animation: false,
-      grid: { left: narrow ? 118 : 150, right: 10, top: narrow ? 104 : 78, bottom: 6 },
+      grid: { left: narrow ? 150 : 180, right: 10, top: narrow ? 104 : 78, bottom: 6 },
       tooltip: {
         confine: true,
         formatter: (p: { value: [number, number, number, number] }) => {
@@ -130,10 +156,13 @@ function TagHeatmap({ data, mode }: { data: Data; mode: Mode }) {
       yAxis: {
         type: 'category',
         inverse: true,
-        data: programs.map((p) => `${p.short}  (${fmt(total[p.key])})`),
+        data: programs.map((p) => `{a|${p.short}  (${fmt(total[p.key])} crashes)}\n{b|${milesText(p.key)}}`),
         axisLine: { show: false },
         axisTick: { show: false },
-        axisLabel: { color: t.ink, fontSize: narrow ? 11 : 12 },
+        axisLabel: {
+          color: t.ink,
+          rich: { a: { fontSize: narrow ? 11 : 12, color: t.ink, lineHeight: 16 }, b: { fontSize: narrow ? 9 : 10, color: t.muted, lineHeight: 13 } },
+        },
       },
       visualMap: { show: false, min: 0, max: max || 1, inRange: { color: ramp }, dimension: 2, outOfRange: { color: t.grid } },
       series: [
@@ -147,14 +176,15 @@ function TagHeatmap({ data, mode }: { data: Data; mode: Mode }) {
             formatter: (p: { value: [number, number, number, number] }) => {
               const v = p.value[2];
               if (v < 0) return 'n/c';
-              return view === 'count' ? (v ? fmt(v) : '') : v ? pct(v, v < 0.1 ? 1 : 0) : '';
+              // Share cells carry the count under the percentage.
+              return view === 'count' ? (v ? fmt(v) : '') : v ? `${pct(v, v < 0.1 ? 1 : 0)}\n${fmt(p.value[3])}` : '';
             },
             color: t.ink,
           },
         },
       ],
     };
-  }, [stats, view, narrative, mode, t, regime, narrow]);
+  }, [stats, view, narrative, mode, t, regime, narrow, miles]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const redactedRows = stats.programs
     .filter((p) => stats.total[p.key] > 0)
@@ -210,6 +240,10 @@ function TagHeatmap({ data, mode }: { data: Data; mode: Mode }) {
           : regime === 'all'
             ? 'All months mixes the two reporting regimes: the reduced-visibility tag halves after 2025-06-15 only because Lighting stopped being collected, and minor crashes left the data at the same date. Pick a regime to compare like with like.'
             : 'Before 2025-06-16: the reporting rules and fields of the archive file.'}
+      </p>
+      <p className="prose small">
+        Under each program: the miles it has disclosed over the months in view (US, or North America for GM Super Cruise and Tesla FSD), summed from monthly figures, with the months they cover.
+        The crash count covers every month, so the two spans can differ. Tesla's miles are FSD (Supervised) only; other reporters disclose none.
       </p>
       <SourceNote date={data.meta.fetched_date} extra="Program-level crash records; a crash can carry several tags, so rows do not add to 100%." />
 

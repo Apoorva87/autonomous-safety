@@ -127,15 +127,15 @@ export type ProgramSetup = {
 
 export const PROGRAM_SETUP: Record<string, ProgramSetup> = {
   waymo_ads: { program: 'waymo_ads', region: 'us', metric: 'perM', unit: 'crashes per million miles', scale: 1e6,
-    why: 'US rider-only miles from the Waymo Safety Impact hub (2024-07 on, monthly values interpolated inside quarters); crashes with an in-vehicle operator are left out to match.' },
+    why: 'US rider-only miles from Waymo disclosures (2023-02 on: a January 2023 milestone, Waymo\'s 7.1-million-mile study, then the Safety Impact hub; monthly values interpolated between dates); crashes with an in-vehicle operator are left out to match.' },
   gm_cruise_ads: { program: 'gm_cruise_ads', region: 'us', metric: 'perM', unit: 'crashes per million miles', scale: 1e6,
     why: 'US driverless miles are estimates for 2023-03 to 2023-09 only; Cruise stopped driverless operation in October 2023, so there is no exposure after the change.' },
   gm_supercruise: { program: 'gm_supercruise', region: 'north_america', metric: 'perM', unit: 'crashes per million miles', scale: 1e6,
-    why: 'North America miles are estimates interpolated between rounded GM disclosures (including a 615-day gap and two flagged months); crashes are US reports.' },
-  tesla_l2: { program: 'tesla_l2', region: 'us', metric: 'per10kVeh', unit: 'crashes per 10,000 vehicle-years', scale: 1e4,
-    why: 'No NHTSA-comparable miles exist; this is per vehicle-year of an estimated US fleet whose definition changes over the years. Per vehicle is not a safety rate when miles per vehicle with the system engaged change fast (FSD miles grew 2.6x in a year).' },
+    why: 'North America miles are estimates interpolated between rounded GM and Trimble disclosures (2022-10 to 2026-10; several months flagged as unevenly split); crashes are US reports.' },
+  tesla_l2: { program: 'tesla_l2', region: 'north_america', metric: 'perM', unit: 'crashes per million miles', scale: 1e6,
+    why: 'North America FSD (Supervised) miles from Tesla\'s safety report (rolling 12-month totals, 2024-10 on; monthly split follows Tesla\'s mileage counter). NHTSA counts also include Autopilot crashes, whose miles are not disclosed, so the level is high for FSD alone; the before/after ratio compares like with like only if the Autopilot share stayed similar.' },
   zoox_ads: { program: 'zoox_ads', region: null, metric: null, unit: '', scale: 1, why: 'No US miles are disclosed (California DMV testing miles are not a denominator for SGO crashes).' },
-  tesla_robotaxi: { program: 'tesla_robotaxi', region: null, metric: null, unit: '', scale: 1, why: 'No miles are disclosed and service began after the change, so there is no before.' },
+  tesla_robotaxi: { program: 'tesla_robotaxi', region: null, metric: null, unit: '', scale: 1, why: 'Service began on 2025-06-22, after the change, so there is no before.' },
   other_ads: { program: 'other_ads', region: null, metric: null, unit: '', scale: 1, why: 'No exposure is collected for other reporters.' },
   other_l2: { program: 'other_l2', region: null, metric: null, unit: '', scale: 1, why: 'No exposure is collected for other reporters.' },
 };

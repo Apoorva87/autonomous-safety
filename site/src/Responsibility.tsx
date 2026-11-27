@@ -237,7 +237,7 @@ function LabelBars({ agg, share, mode, rows, readable, onPick }: { agg: ProgramA
                         aria-label={`${text}. Show these reports in the list.`}
                         onClick={() => onPick(a.program, label)}
                       >
-                        {w >= 8 && conf !== 'medium' ? (share ? pctText(n / a.total) : fmt(n)) : ''}
+                        {conf === 'medium' || w < 6 ? '' : w >= 14 ? (share ? `${pctText(n / a.total)} (${fmt(n)})` : `${fmt(n)} (${pctText(n / a.total)})`) : share ? pctText(n / a.total) : fmt(n)}
                       </button>
                     );
                   })}
@@ -423,6 +423,17 @@ function TimePanels({ rows, share, grain, mode }: { rows: RespRow[]; share: bool
       name: labelName(label, p), type: 'bar', stack: 'n', barCategoryGap: grain === 'year' ? '30%' : '8%',
       itemStyle: { color: colorOf(LABEL_COLOR[label], mode) },
       data: share ? periodShare(ts, label, MIN_SHARE_N).map((v) => (v == null ? null : v * 100)) : ts.counts[label],
+      // Annual bars are wide enough to carry the count (share mode) or the share (count mode) inside each segment.
+      label: {
+        show: grain === 'year', fontSize: 9.5, color: '#ffffff',
+        formatter: (q: { dataIndex: number }) => {
+          const i = q.dataIndex;
+          const n = ts.counts[label][i];
+          const tot = ts.totals[i];
+          if (!tot || n / tot < 0.12) return '';
+          return share ? `${Math.round((n / tot) * 100)}%\n(${fmt(n)})` : `${fmt(n)}\n(${Math.round((n / tot) * 100)}%)`;
+        },
+      },
       ...(label === 'other_party' && breakIdx >= 0
         ? { markLine: { silent: true, symbol: 'none', label: { show: false }, lineStyle: { color: mode === 'dark' ? '#e0693a' : '#b3361a', type: 'dashed', width: 1.5 }, data: [{ xAxis: breakIdx }] } }
         : {}),

@@ -100,7 +100,7 @@ function ClaimsLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mod
       sourceIds: ['gm_news_20240215'],
     },
     {
-      id: 'this', label: 'This site\'s derived rates (Rates, Cities and Learning tabs)',
+      id: 'this', label: 'This site\'s derived rates (Rates and By city views)',
       window: 'As filed with NHTSA: a 30-second engagement window for both ADS and Level 2',
       crash: 'Crashes per program (one record per program and incident) matched by region and month to the miles; for rider-only programs only crashes with no in-vehicle operator',
       scope: 'Only where a sourced denominator exists for the same region; many miles are estimates',

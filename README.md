@@ -38,7 +38,7 @@ sources → pipeline (fetch → harmonize → classify → validate) → golden 
 | Golden database: every source column, every report version, explicit missing-value reasons (see [Golden database](#golden-database)) | `pipeline/golden.py`, `pipeline/build_db.py`, `data/golden/` | **Built** |
 | Aggregation + validation gates (a bad update deploys nothing) | `pipeline/aggregate.py`, `validate.py`, `exposure.py`, `run.py` | **Built** |
 | Monthly GitHub Action + GitHub Pages deploy | `.github/workflows/` | **Planned** |
-| Dashboard on GitHub Pages: Overview, Rates (uncertainty bands, scenarios, funnel), Improving? (before/after the 2025-06-16 rule change), WebGL crash explorer, Patterns (tags, incident mix over time, time of day), Transparency (incl. reporting completeness and revisions), Impact map, Cities, Timeline, Learning curves, Claims vs filings, Responsibility lens (crash-level, over time), Data & sources | `site/` | **Built** (deployed to the `gh-pages` branch by hand) |
+| Dashboard on GitHub Pages, in five groups. **Overview**: crashes per million miles and miles per crash for every program with disclosed miles (driverless and Level 2 in separate panels; crash type picker; last 24 months with a 3-month rolling rate, or years from 2020), monthly counts, injury mix with counts. **Rates**: rate explorer (uncertainty bands, scenarios, funnel), before/after the 2025-06-16 rule change (one summary table), by city, timeline with events and investigations, claims vs filings. **Crashes**: WebGL crash explorer, patterns (tags with counts and disclosed miles, incident mix, time of day), impact map. **Responsibility** lens (counts with shares). **Data**: sources, transparency (reporting completeness and revisions) | `site/` | **Built** (deployed to the `gh-pages` branch by hand) |
 | Responsibility pass 1 (rules on structured fields, with a rough narrative audit) | `pipeline/responsibility.py` | **Built** |
 | Derived per-crash fields: threshold-robust class (`robust`), local `hour` (Tesla converted from UTC), `light_condition` from time when Lighting is missing; `revisions.json`; reporting-lag curves per regime; "Verified Not Engaged" reports kept out of crash counts | `pipeline/derive.py`, `pipeline/aggregate.py` | **Built** |
 
@@ -70,7 +70,7 @@ Implementation plan: [`docs/superpowers/plans/2026-11-26-av-safety-dashboard.md`
 - NHTSA reporting rules changed on **2025-06-16** (minor ADS crashes and Level 2 tow-only crashes stopped being
   reportable). Time charts count **threshold-robust crashes** by default (any injury, an air bag, a tow-away for ADS, or a
   pedestrian/cyclist: reportable under both rules; unknown counts as not met, so it is a lower bound), lines are not
-  joined across the break, and before/after comparisons (Improving?) never pool the two regimes. Reporting-lag curves
+  joined across the break, and before/after comparisons (Rates → Before / after) never pool the two regimes. Reporting-lag curves
   are estimated per regime. "All reportable crashes" stays available as a toggle.
 - **Tesla files incident times in UTC**; every other reporter uses local time. Hours are converted to the state's main
   time zone (daylight saving by month); the evidence (recorded Lighting agreement 55% as filed vs 99% converted) is in
@@ -176,9 +176,12 @@ Anyone is welcome to pick these up.
   prompt version, rationale and evidence. For Level 2 programs, driver vs. system cannot be separated from NHTSA data;
   the lens says so rather than guessing. Pass 1 rules are documented in `responsibility_rules.json`
   (RESP-OTH-1..4, SUB-1..3, IND-1..4, NAR-1; SUB-4 retired after the audit).
-- **Better exposure data.** Lifetime cumulative miles per program (the learning curves currently use miles since the
-  first disclosure), Tesla Autopilot-only miles (not disclosed), Zoox miles, California DMV 2025 and CPUC data,
-  Waymo launch dates, US-only splits of Super Cruise miles. Monthly mileage splits flagged ">3x" are unreliable.
+- **Better exposure data.** Added in this round: Waymo rider-only miles from 2023 (January 2023 milestone, the 7.14 M-mile
+  study), Super Cruise from 2022-10 (Trimble), Tesla North America FSD (Supervised) miles from 2024-10 (two non-overlapping
+  rolling 12-month totals, split by month along Tesla's own mileage counter) and Tesla Robotaxi miles spread from launch.
+  Still missing: Waymo before 2023, Tesla Autopilot-only miles (not disclosed, so Tesla's per-mile rate puts Autopilot
+  crashes over FSD miles), Zoox miles, California DMV 2025 and CPUC data, US-only splits of Super Cruise miles, and a
+  reconciliation of GM's March 2026 (800 M) and April 2026 (1 B) figures. Monthly splits flagged ">3x" are unreliable.
 - **A derived `pii_withheld` flag** (VIN, ZIP, exact location are kept raw-only today), a `narrative_readable` column
   in the responsibility export, and an `includeOther` scenario control.
 - **Alternative front ends.** The site only reads the golden database exports, so other visualization stacks

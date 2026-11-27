@@ -6,6 +6,7 @@ import { defaultRegion } from './Rates';
 import { monthlySeries } from './lib/learning';
 import { BREAK_DATE, type Metric, type Point } from './lib/metrics';
 import { fmtNum } from './lib/format';
+import { ci95 } from './lib/poisson';
 import {
   COMPANY_PROGRAMS, dateMs, laneOfEvent, makeScale, makeTicks, niceCeil, msToDate, msToMonth, packLanes, panRange,
   periodForEvent, periodForInvestigation, zoomRange, type Range,
@@ -35,6 +36,30 @@ const COMPANY_COLOR = (company: string, mode: Mode): string => {
 };
 const BRK = (mode: Mode) => (mode === 'dark' ? '#f08a72' : '#b3361a');
 const safeUrl =(u: string) => (/^https?:\/\//i.test(u) ? u : '');
+
+/**
+ * 3-month rolling version of a monthly series: each month's rate is crashes over that month and the two before it divided by
+ * their summed exposure (count metric: the 3-month mean). Months whose window lacks exposure, or spans the 2025-06-16 change, get no rate.
+ */
+export function rollPoints(pts: Point[], metric: Metric): Point[] {
+  const scale = metric === 'per10kVeh' ? 1e4 : 1e6;
+  const seg = (m: string) => (m < '2025-06' ? 0 : m === '2025-06' ? 1 : 2);
+  return pts.map((p, i) => {
+    const win = pts.slice(Math.max(0, i - 2), i + 1);
+    const ok = win.length === 3 && win.every((q) => q.rate != null && seg(q.period) === seg(p.period) && (metric === 'count' || (q.exposure ?? 0) > 0));
+    if (!ok) return { ...p, rate: null, lo: null, hi: null };
+    const k = win.reduce((a, q) => a + q.k, 0);
+    const kAdj = win.reduce((a, q) => a + q.kAdj, 0);
+    const [l, h] = ci95(k);
+    const f = k > 0 ? kAdj / k : 1;
+    if (metric === 'count') return { ...p, rate: kAdj / 3, lo: (l * f) / 3, hi: (h * f) / 3, lowSample: k < 10 };
+    const e = win.reduce((a, q) => a + (q.exposure as number), 0);
+    return {
+      ...p, rate: (kAdj / e) * scale, lo: ((l * f) / e) * scale, hi: ((h * f) / e) * scale,
+      lowSample: k < 10 || win.some((q) => q.exposureKind === 'estimate'), flag: win.find((q) => q.flag)?.flag ?? null,
+    };
+  });
+}
 
 type Sel = { kind: 'event'; e: EventRow } | { kind: 'inv'; i: InvestigationRow } | null;
 type Series = { prog: string; label: string; color: string; region: string; metric: Metric; pts: Point[]; allPts: Point[] | null };
@@ -72,6 +97,7 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
   const metric = (METRICS.find((m) => m.id === params.get('tm'))?.id ?? 'perM') as Metric;
   const allCompanies = params.get('tall') === '1';
   const numerator = numeratorFrom(params);
+  const rolling = params.get('trl') !== '0';
 
   const series: Series[] = useMemo(
     () =>
@@ -79,13 +105,14 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
         const region = defaultRegion(rates, prog, metric);
         const counts = scopedCounts(rates.countRows, data.crashes, prog, region === 'global' ? 'us' : region, { riderOnly: scenario.riderOnly });
         const opts = { program: prog, region, metric, lastMonth: rates.lastMonth, lag: rates.lag[prog] };
-        const pts = monthlySeries(counts, rates.exposure, scenario, { ...opts, measure: numerator });
-        // With the robust numerator, the all-crash series is drawn faint behind it, for context.
-        const allPts = numerator === 'robust' ? monthlySeries(counts, rates.exposure, scenario, { ...opts, measure: 'crashes' }) : null;
+        const raw = monthlySeries(counts, rates.exposure, scenario, { ...opts, measure: numerator });
+        const pts = rolling ? rollPoints(raw, metric) : raw;
+        // The faint all-crash context line was dropped: it set the y-scale and flattened the curve being read.
+        const allPts = null;
         return { prog, label: PROGRAM_BY_KEY[prog].short, color: colorOf(PROGRAM_BY_KEY[prog].color, mode), region, metric, pts, allPts };
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [progs.join('|'), metric, rates, data.crashes, scenario, mode, numerator],
+    [progs.join('|'), metric, rates, data.crashes, scenario, mode, numerator, rolling],
   );
 
   const events = useMemo(
@@ -247,6 +274,10 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
           </label>
           <NumeratorToggle value={numerator} />
           <label className="check">
+            <input type="checkbox" checked={rolling} onChange={(e) => setQuery({ trl: e.target.checked ? null : '0' })} />
+            3-month rolling rate
+          </label>
+          <label className="check">
             <input type="checkbox" checked={allCompanies} onChange={(e) => setQuery({ tall: e.target.checked ? '1' : null })} />
             Show events and investigations for every company
           </label>
@@ -280,7 +311,7 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
             </span>
             <span className="panel-total"><RegimeBadge robust={numerator === 'robust'} /></span>
             <span className="panel-total">
-              Lines: monthly rate with its exact Poisson 95% band, gaps where no exposure is disclosed · hollow markers: low sample or estimated exposure
+              Lines: {rolling ? '3-month rolling rate (each month with the two before it, never across the rule change)' : 'monthly rate'} with its exact Poisson 95% band, gaps where no exposure is disclosed · hollow markers: low sample or estimated exposure
             </span>
           </figcaption>
           <svg
@@ -461,7 +492,6 @@ function TimelineLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
               <li key={s.prog}><span className="swatch" style={{ background: s.color }} /> {s.label}</li>
             ))}
             <li><span className="mk mk-break" /> 2025-06-16 rule change (not a safety change); curves are not joined across it</li>
-            {numerator === 'robust' && <li><span className="swatch" style={{ background: t.faint }} /> faint grey: all reportable crashes, for context (their threshold changed)</li>}
             <li>◆ filled: dated to the day · ◇ hollow: month only</li>
             <li><span className="flag-icon">⚑</span> unreliable month: exposure split from very uneven disclosures (&gt;3×)</li>
             <li>Probe bars: solid = closed, hatched = open</li>

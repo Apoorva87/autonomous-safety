@@ -31,15 +31,15 @@ const MEASURES: { id: Measure; label: string }[] = [
 
 const WHY: Record<string, string> = {
   tesla_l2:
-    'Tesla Autopilot/FSD (Level 2): only worldwide FSD miles are disclosed, and NHTSA counts cannot be split between Autopilot and FSD, so there are no NHTSA-comparable US miles and no per-mile series is drawn unless you set a miles-per-vehicle assumption yourself (scenario panel, off by default). Per-vehicle rates use US vehicle counts quoted in NHTSA investigations (estimates); the population definition changes over the years (2014-21 counts are Autopilot-equipped vehicles, about 765k-830k; later counts are FSD-equipped vehicles, 2.4-3.2 M, or all Tesla vehicles subject to the order, about 2.6 M), so year-to-year changes partly reflect the definition.',
+    'Tesla Autopilot/FSD (Level 2): per-mile rates use North America FSD (Supervised) miles from Tesla\'s FSD safety report (rolling 12-month totals from 2024-10, split by month along Tesla\'s mileage counter): estimates. NHTSA counts cannot be split between Autopilot and FSD, and Autopilot miles are not disclosed, so the rate is high for FSD alone; the miles include Canada. Per-vehicle rates use US vehicle counts quoted in NHTSA investigations (estimates whose definition changes over the years).',
   tesla_robotaxi:
-    'Tesla Robotaxi (ADS): no miles are disclosed, and the only fleet figures are small estimates (Austin 2025-26, US in 2026), so most periods have no denominator.',
+    'Tesla Robotaxi (ADS): one disclosed counter (3.1 M miles to 2026-10-18), spread evenly from the 2025-06-22 Austin launch, so monthly miles are rough estimates; Tesla does not say whether rides with a safety driver are included. Fleet figures are small estimates.',
   gm_supercruise:
-    'GM Super Cruise (Level 2): North America miles are estimates interpolated between GM press disclosures (they include Canada), and vehicle counts are only reported for 2026. Crashes are all US reports, so read these rates as rough.',
+    'GM Super Cruise (Level 2): North America miles are estimates interpolated between GM and Trimble disclosures (2022-10 to 2026-10; they include Canada), and vehicle counts are only reported for 2026. Two disclosures do not reconcile (800 M in March 2026, 1 B in April 2026), so those months are flagged. Crashes are all US reports, so read these rates as rough.',
   gm_cruise_ads:
     'GM Cruise (ADS): US miles are estimates for 2023-03 to 2023-09 only; the numerator counts only crashes with no in-vehicle operator, to match driverless miles. The California DMV miles are testing miles (including safety drivers) and are shown for information only, never as a denominator. Cruise suspended driverless operations in October 2023 and was wound down in December 2024.',
   waymo_ads:
-    'Waymo (ADS): US miles come from the Waymo Safety Impact hub from 2024-07 and are rider-only miles (no human driver); the first months are derived and most months are interpolated estimates. Earlier years have no US miles. The numerator counts only crashes with no in-vehicle operator, to match rider-only miles. California DMV testing miles are shown for information only, never as a denominator.',
+    'Waymo (ADS): US rider-only miles (no human driver) from Waymo disclosures: 1 M in January 2023, 7.14 M to October 2023 (Waymo\'s crash-rate study), then the Waymo Safety Impact hub from 2024-06; monthly values are interpolated between these dates, so most are estimates. The numerator counts only crashes with no in-vehicle operator, to match rider-only miles. California DMV testing miles are shown for information only, never as a denominator.',
   zoox_ads:
     'Zoox (ADS): only California DMV testing miles (testing with safety drivers, Dec-Nov years) and a small fleet estimate are available. The California miles are not a denominator for SGO crashes, so there is no rate; there are no US miles.',
   other_ads: 'Other reporters (ADS): no exposure data is collected; only counts are available.',
@@ -105,7 +105,7 @@ function RatesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mode
 
   // ---- view state (URL) ----
   // One kind group at a time: L2 and ADS reporting thresholds differ, so they never share a chart, table or funnel.
-  const rawPicked = (params.get('p') ?? 'waymo_ads').split(',').filter((p) => ALL_PROGRAMS.includes(p));
+  const rawPicked = (params.get('p') ?? 'waymo_ads,gm_cruise_ads,tesla_robotaxi').split(',').filter((p) => ALL_PROGRAMS.includes(p));
   const picked = limitToKind(rawPicked);
   const rawEntity = params.get('ent');
   const entityInfo = entities.find((e) => e.name === rawEntity);
@@ -394,7 +394,7 @@ function RatesLoaded({ data, rates, mode }: { data: Data; rates: RatesData; mode
               {grain === 'month' && year > 2025 && (
                 <p className="small">The 2025-06-16 rule change lies before this range: every month shown follows the Third Amended SGO.</p>
               )}
-              {grain === 'year' && <p className="small">2019 and 2020 are empty: SGO reporting began 2021-07, and 2021 covers July to December only. 2025 spans the 2025-06-16 rule change, so it stands alone (not joined to 2024 or 2026); for a before/after reading see <a href="#improving">Improving?</a>.</p>}
+              {grain === 'year' && <p className="small">2019 and 2020 are empty: SGO reporting began 2021-07, and 2021 covers July to December only. 2025 spans the 2025-06-16 rule change, so it stands alone (not joined to 2024 or 2026); for a before/after reading see <a href="#improving">Before / after</a>.</p>}
               {measure === 'robust' ? <RobustNote kind={pageKind} /> : measure === 'crashes' ? <p className="small" role="note"><b>All reportable crashes:</b> the reporting threshold changed on 2025-06-16, so this count drops at that date whatever happened on the road. Switch Counting back to threshold-robust crashes to compare across it.</p> : null}
               {anyIncomplete && <p className="small"><IncompleteMark months={[...new Set(computed.flatMap((c) => c.points.flatMap((p) => p.incomplete)))].sort()} /> Recent months are incomplete (late reports expected): hatched columns and dotted lines mark them, so a dip there is not an improvement. Turn on the late-report adjustment in the scenario panel to see an adjusted estimate.</p>}
               {metric === 'per10kVeh' && <p className="small">Per-vehicle rates are crashes per 10,000 vehicle-years: vehicles x (months covered / 12), with the crashes counted over the same months. A partial year is flagged and not read as safer than a full one.</p>}

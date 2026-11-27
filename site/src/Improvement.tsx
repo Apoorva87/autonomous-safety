@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { Fragment, useMemo } from 'react';
 import type { EChartsCoreOption } from 'echarts/core';
 import type { Data } from './data';
 import { fmt } from './data';
@@ -6,7 +6,7 @@ import { EChart, SourceNote } from './EChart';
 import { PROGRAM_BY_KEY, colorOf, ui, type Mode } from './theme';
 import { scopedCounts, useRatesData, type RatesData } from './data/rates';
 import { monthlySeries } from './lib/learning';
-import { KIND_GROUPS, kindLabel, type KindId } from './lib/kinds';
+import { KIND_GROUPS, type KindId } from './lib/kinds';
 import { esc, fmtNum } from './lib/format';
 import {
   NUMERATOR_BY_ID, PROGRAM_SETUP, countedCrashes, forestRows, quarterSeries, usableMonths,
@@ -47,9 +47,9 @@ function Loaded({ data, rates, mode }: { data: Data; rates: RatesData; mode: Mod
   const params = useQuery();
   const [scenario] = useScenario();
   const t = ui(mode);
-  const kind: KindId = params.get('ik') === 'l2' ? 'l2' : 'ads';
-  const rated = RATED[kind];
-  const program = rated.includes(params.get('ip') ?? '') ? (params.get('ip') as string) : rated[0];
+  const ALL_RATED = [...RATED.ads, ...RATED.l2];
+  const program = ALL_RATED.includes(params.get('ip') ?? '') ? (params.get('ip') as string) : ALL_RATED[0];
+  const kind: KindId = RATED.l2.includes(program) ? 'l2' : 'ads';
 
   const results = useMemo(() => {
     const out: Record<string, ProgramResult> = {};
@@ -77,7 +77,6 @@ function Loaded({ data, rates, mode }: { data: Data; rates: RatesData; mode: Mod
   const sel = results[program];
   const setup = PROGRAM_SETUP[program];
   const color = colorOf(PROGRAM_BY_KEY[program].color, mode);
-  const kindPrograms = KIND_GROUPS.find((g) => g.id === kind)!.programs;
 
   const forestItems: ForestItem[] = (sel?.rows ?? []).map((r) => {
     const empty = r.verdict.code === 'no_denominator' || r.verdict.code === 'insufficient' ? r.verdict.text : undefined;
@@ -91,64 +90,92 @@ function Loaded({ data, rates, mode }: { data: Data; rates: RatesData; mode: Mod
   };
   });
 
-  const programItems: ForestItem[] = kindPrograms.map((p) => {
-    const res = results[p];
-    const robust = res?.rows.find((r) => r.numerator.id === 'robust');
-    const info = PROGRAM_BY_KEY[p];
-    const v = robust?.verdict;
-    const empty = !robust || v?.code === 'no_denominator' ? PROGRAM_SETUP[p].why : v?.code === 'insufficient' ? v.text : undefined;
-    return {
-      key: p,
-      label: <><i className="swatch" style={{ background: colorOf(info.color, mode) }} /> {info.short}{res?.estimate && <>{' '}<span className="small">(estimated {PROGRAM_SETUP[p].metric === 'per10kVeh' ? 'fleet' : 'miles'})</span></>}</>,
-      aria: `${info.short}: ${v?.text ?? PROGRAM_SETUP[p].why}`,
-      rr: robust?.rr.rr ?? null, lo: robust?.rr.lo ?? null, hi: robust?.rr.hi ?? null, color: colorOf(info.color, mode),
-      empty,
-      right: robust?.rr.rr != null && !empty ? <><b>{robust.rr.rr.toFixed(2)}×</b> <span className="small">[{robust.rr.lo?.toFixed(2)}, {robust.rr.hi?.toFixed(2)}]</span></> : null,
-    };
-  });
-
   const robustRow = sel?.rows.find((r) => r.numerator.id === 'robust');
   const allRow = sel?.rows.find((r) => r.numerator.id === 'all');
+
+  const span = (ms: MonthExposure[]) => (ms.length ? `${ms[0].month} to ${ms[ms.length - 1].month}` : 'no months');
 
   return (
     <SourcesCtx.Provider value={rates.sources}>
       <section className="improve">
-        <h2>Is it improving? Before and after the 2025-06-16 rule change</h2>
+        <h2>Before and after the 2025-06-16 reporting change</h2>
         <p className="prose">
-          On 2025-06-16 NHTSA changed which crashes must be reported. Minor crashes stopped arriving, so any count of <em>all</em> reported crashes drops at that date
-          whether or not driving changed. This page compares each program with itself, before and after the change, using only crashes that were reportable under
-          both rules (any injury, an air bag, a tow-away for driverless programs, or a pedestrian or cyclist). It never says one program is safer than another.
+          <b>What this compares:</b> each program with <em>itself</em>. NHTSA changed which crashes must be reported on 2025-06-16, so this page takes every month
+          before that date and every month after it, and works out crashes per million miles in each. Only crashes that had to be reported under both sets of rules
+          are counted (any injury, an air bag, a tow-away, or a pedestrian or cyclist), so the change in rules does not by itself move the number.
+          The question it answers: <em>did this program's reported crash rate go up, down, or stay the same since mid-2025?</em> It never ranks programs against each other.
         </p>
-        <p><RegimeBadge robust /></p>
-        <KindCaveat extra="Each kind group is shown on its own, and every ratio compares a program with itself." />
 
-        <div className="controls">
-          <div className="field">
-            Kind group
-            <div className="seg" role="group" aria-label="Kind group">
+        <div className="table-wrap">
+          <table className="improve-summary">
+            <caption className="sr-only">Threshold-robust crash rate before and after 2025-06-16, per program</caption>
+            <thead>
+              <tr>
+                <th scope="col">Program</th>
+                <th scope="col">Before 2025-06-16</th>
+                <th scope="col">After</th>
+                <th scope="col">Change</th>
+              </tr>
+            </thead>
+            <tbody>
               {KIND_GROUPS.map((g) => (
-                <button key={g.id} type="button" className={kind === g.id ? 'on' : ''} aria-pressed={kind === g.id}
-                  onClick={() => setQuery({ ik: g.id === 'ads' ? null : g.id, ip: null })}>{g.label}</button>
+                <Fragment key={g.id}>
+                  <tr className="group-row"><th scope="rowgroup" colSpan={4}>{g.label}</th></tr>
+                  {g.programs.filter((p) => !p.startsWith('other')).map((p) => {
+                    const res = results[p];
+                    const r = res?.rows.find((x) => x.numerator.id === 'robust');
+                    const info = PROGRAM_BY_KEY[p];
+                    const pre = res?.months.filter((m) => m.month < '2025-06') ?? [];
+                    const post = res?.months.filter((m) => m.month > '2025-06') ?? [];
+                    const usable = r && r.pre.rate != null && r.post.rate != null;
+                    return (
+                      <tr key={p}>
+                        <th scope="row">
+                          <button type="button" className="linklike" onClick={() => setQuery({ ip: RATED[g.id].includes(p) && p !== ALL_RATED[0] ? p : null })} disabled={!RATED[g.id].includes(p)}>
+                            <i className="swatch" style={{ background: colorOf(info.color, mode) }} /> {info.short}
+                          </button>
+                        </th>
+                        {usable ? (
+                          <>
+                            <td><b>{fmtNum(r.pre.rate)}</b> <span className="small">per M miles</span><br /><span className="small">{fmt(r.pre.k)} crashes / {fmtNum(r.pre.e)} miles, {span(pre)}</span></td>
+                            <td><b>{fmtNum(r.post.rate)}</b> <span className="small">per M miles</span><br /><span className="small">{fmt(r.post.k)} crashes / {fmtNum(r.post.e)} miles, {span(post)}</span></td>
+                            <td className={`verdict-cell ${VERDICT_CLASS[r.verdict.code]}`}>
+                              {r.rr.rr != null && <b>{r.rr.rr >= 1 ? '+' : '−'}{Math.abs(Math.round((r.rr.rr - 1) * 100))}%</b>}{' '}
+                              <span className="small">{r.verdict.code === 'no_change' ? 'no detectable change' : r.verdict.code === 'lower' ? 'lower after' : r.verdict.code === 'higher' ? 'higher after' : 'too few crashes'}
+                                {r.rr.lo != null && r.rr.hi != null && ` (95%: ${r.rr.lo >= 1 ? '+' : '−'}${Math.abs(Math.round((r.rr.lo - 1) * 100))}% to ${r.rr.hi >= 1 ? '+' : '−'}${Math.abs(Math.round((r.rr.hi - 1) * 100))}%)`}
+                                {res?.estimate && ', miles estimated'}</span>
+                            </td>
+                          </>
+                        ) : (
+                          <td colSpan={3} className="small">{r?.verdict.code === 'insufficient' ? r.verdict.text : PROGRAM_SETUP[p].why}</td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </Fragment>
               ))}
-            </div>
-          </div>
-          <div className="field">
-            Program
-            <div className="seg" role="group" aria-label="Program">
-              {rated.map((p) => (
-                <button key={p} type="button" className={program === p ? 'on' : ''} aria-pressed={program === p}
-                  onClick={() => setQuery({ ip: p === rated[0] ? null : p })}>{PROGRAM_BY_KEY[p].short}</button>
-              ))}
-            </div>
+            </tbody>
+          </table>
+        </div>
+        <p className="small">
+          June 2025 is left out (some of its crashes fall under each set of rules), and so are the latest months, whose reports are still arriving. "No detectable change" means the
+          95% interval includes zero change. "Higher" or "lower" is about reported crashes per disclosed mile: a change in how a company reports crashes, or a rough
+          mileage estimate (GM's are rounded milestones that do not all reconcile), moves it as much as a change on the road. Driverless rates count only crashes with no one at the wheel, to match rider-only miles. Click a program for the detail below.
+        </p>
+
+        <h3>Look closer: {PROGRAM_BY_KEY[program].label}</h3>
+        <div className="controls">
+          <div className="seg" role="group" aria-label="Program">
+            {ALL_RATED.map((p) => (
+              <button key={p} type="button" className={program === p ? 'on' : ''} aria-pressed={program === p}
+                onClick={() => setQuery({ ip: p === ALL_RATED[0] ? null : p })}>{PROGRAM_BY_KEY[p].short}</button>
+            ))}
           </div>
         </div>
-
-        <h3>Every {kindLabel(kind)} program: threshold-robust rate, after ÷ before</h3>
-        <Forest items={programItems} caption={`Rate ratio of threshold-robust crashes after versus before 2025-06-16, ${kindLabel(kind)} programs`} />
+        <KindCaveat extra="Each ratio compares a program with itself." />
 
         {sel && (
           <>
-            <h3>{PROGRAM_BY_KEY[program].label}</h3>
             <div className={`verdict ${robustRow ? VERDICT_CLASS[robustRow.verdict.code] : ''}`} role="status">
               <span className="verdict-key">Threshold-robust crashes</span>
               <b>{robustRow?.verdict.text}</b>
@@ -176,10 +203,11 @@ function Loaded({ data, rates, mode }: { data: Data; rates: RatesData; mode: Mod
               </p>
             )}
 
-            <h3>By numerator: which counts moved, and which did not</h3>
+            <h3>By crash type: which counts moved</h3>
+            <p className="small">Grey rows are counts the rule change affects by itself (for example all reportable crashes), shown for contrast.</p>
             <Forest items={forestItems} min={0.125} max={8} caption={`${PROGRAM_BY_KEY[program].short}: rate ratio after versus before 2025-06-16 for several numerators`} />
 
-            <h3>Inside each regime</h3>
+            <h3>Quarter by quarter</h3>
             <QuarterChart res={sel} unit={setup.unit} color={color} mode={mode} />
             <ForestTable rows={sel.rows} unit={setup.unit} vy={setup.metric === 'per10kVeh'} />
           </>
@@ -189,10 +217,8 @@ function Loaded({ data, rates, mode }: { data: Data; rates: RatesData; mode: Mod
         <div className="callout small">
           <h3>Read with care</h3>
           <ul>
-            <li>Monthly miles are interpolated inside quarters, so the within-regime chart uses quarters, and the before/after ratios sum whole regimes.</li>
-            <li>The driving itself changed too: new cities, freeways and vehicle platforms (Waymo), new software and many more miles. A flat ratio means the reported rate of consequential crashes did not measurably change, not that nothing changed.</li>
-            <li>For rider-only programs only crashes with no one in the driver's seat are counted, to match rider-only miles (scenario panel on the Rates tab).</li>
-            <li>Tesla Level 2 has no NHTSA-comparable miles: its ratio is per vehicle-year of an estimated fleet whose definition changes, and is not a safety rate.</li>
+            <li>The driving changed too: new cities, freeways, vehicles and software, and many more miles. A flat ratio means the reported rate of serious-enough crashes did not measurably change, not that nothing changed.</li>
+            <li>Most miles are estimates interpolated between company disclosures; Tesla's miles are FSD only while its crash counts include Autopilot.</li>
             <li>"Lower" or "higher" describes the reported rate only. Nothing here is a finding of safety or fault.</li>
           </ul>
         </div>
