@@ -20,7 +20,18 @@ into one crash row:
 A report whose Same Incident ID is blank is its own incident (harmonize gives it
 a "solo:<id>" key), so unrelated blank-ID reports never merge.
 
-records.json holds one row per unique incident (the representative report's values).
+records.json holds one row per (program, incident) pair: the program's OWN report of the incident
+(highest severity among that program's reports of it, ties: lowest report id), with that report's
+entity, city, state, severity, month and so on, plus `incident_key` and `n_programs_in_incident`. A crash
+filed by two programs is two rows. Per-program row counts therefore equal counts.json's per-program
+crashes, and entity and city counts are never taken from another program's report. `tags` is the union
+over the program's own reports of the incident (a structured-field basis beats a narrative basis), the same
+rule counts.json uses for `vru`. `n_reports` is the number of that program's reports of the incident and
+`operator` is the report's Driver / Operator Type (none, remote, in_vehicle, ...). `entity` is the
+representative report's filer; `entities` lists every entity that filed a report of the incident under the
+program (two filers of one program, e.g. Ford and another other_l2 reporter, share one row), so per-entity
+counts use `entities` and add up to the incidents each entity filed. The grand total of unique
+incidents is meta.json counts_total.unique_incidents.
 counts.json counts per program: `reports` tallies each report under its own program,
 month and file; `crashes` are the unique incident_keys of that program, and an incident
 counts for every program that filed a report in it (a collision between two programs'
@@ -62,14 +73,14 @@ OUTPUT_FILES = (
 
 # Column order of records.json rows. "id" is the report id of the representative report.
 RECORD_FIELDS = [
-    "id", "incident_key", "n_reports", "era", "entity", "company", "program", "month",
+    "id", "incident_key", "n_programs_in_incident", "n_reports", "era", "entity", "entities", "company", "program", "month",
     "lag_days", "make", "model", "model_year", "city", "state", "roadway_type", "surface",
     "lighting", "weather", "speed_mph", "speed_limit", "speed_band", "crash_with",
     "cp_movement", "sv_movement", "severity", "hospitalized", "airbag", "towed",
     "within_odd", "narrative_redacted", "version_redacted", "tags",
-    "sv_contact_areas", "cp_contact_areas",
+    "sv_contact_areas", "cp_contact_areas", "operator",
 ]
-_RECORD_SOURCE = {"id": "report_id"}
+_RECORD_SOURCE = {"id": "report_id", "operator": "driver_operator_type"}
 # List-valued fields that may be absent on older fixtures; absent means an empty list.
 _LIST_FIELDS = {"sv_contact_areas", "cp_contact_areas"}
 
@@ -115,14 +126,36 @@ def tag_strings(row):
 
 
 # ------------------------------------------------------------------- records
-def build_records(crashes):
+def programs_per_incident(reports):
+    """{incident_key: number of distinct programs with a current report of it}."""
+    seen = defaultdict(set)
+    for r in reports:
+        seen[r["incident_key"]].add(r["program"])
+    return {k: len(v) for k, v in seen.items()}
+
+
+def merged_tags(members):
+    """Tag strings over a program's own reports of one incident; a 'field' basis beats a 'narrative' one."""
+    basis = {}
+    for r in sorted(members, key=lambda m: m["report_id"]):
+        for t in r["tags"]:
+            if basis.get(t["t"]) != "f":
+                basis[t["t"]] = "f" if t["basis"] == "field" else "n"
+    return ["%s:%s" % (name, b) for name, b in basis.items()]
+
+
+def build_records(incidents, n_programs):
+    """records.json: one row per (program, incident). `incidents` is program_incidents(), `n_programs` programs_per_incident()."""
     rows = []
-    for rep, n in crashes:
-        values = dict(rep, n_reports=n, tags=tag_strings(rep))
+    for rep, members in incidents:
+        values = dict(rep, n_reports=len(members), tags=merged_tags(members),
+                      entities=sorted({m["entity"] for m in members}),
+                      n_programs_in_incident=n_programs[rep["incident_key"]])
         rows.append([
             values.get(_RECORD_SOURCE.get(f, f), []) if f in _LIST_FIELDS else values[_RECORD_SOURCE.get(f, f)]
             for f in RECORD_FIELDS
         ])
+    rows.sort(key=lambda r: (r[0], r[RECORD_FIELDS.index("program")]))
     return {"fields": RECORD_FIELDS, "rows": rows}
 
 
@@ -404,7 +437,7 @@ def build_all(tables, fetch_log, run_id, run_at, today, previous_tables=None, pr
     all_warnings = list(warnings) + exposure_warnings
     entry = changelog_entry(previous_tables or {}, tables, run_id, run_at)
     outputs = {
-        "records.json": build_records(crashes),
+        "records.json": build_records(program_incidents(reports), programs_per_incident(reports)),
         "narratives.json": build_narratives(reports),
         "counts.json": build_counts(reports),
         "lag.json": build_lag(reports),

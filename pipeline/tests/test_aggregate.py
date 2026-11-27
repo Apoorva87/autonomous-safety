@@ -2,6 +2,7 @@ import copy
 import datetime
 import json
 import tempfile
+from collections import Counter
 import unittest
 from pathlib import Path
 
@@ -23,7 +24,7 @@ def rec(report_id, key, severity="none", program="waymo_ads", month="2025-01", *
         "month": month, "lag_days": 30, "make": None, "model": None, "model_year": None, "city": None, "state": "CA",
         "roadway_type": "street", "surface": None, "lighting": None, "weather": [], "speed_mph": 10, "speed_limit": None,
         "speed_band": "6-15", "crash_with": "suv", "cp_movement": None, "sv_movement": "stopped", "severity": severity,
-        "hospitalized": None, "airbag": None, "towed": None, "within_odd": "yes", "narrative_redacted": False,
+        "hospitalized": None, "airbag": None, "towed": None, "within_odd": "yes", "driver_operator_type": "none", "narrative_redacted": False,
         "version_redacted": False, "tags": [], "unknown_fields": 0,
         "raw": {"Narrative": "secret text"},
     }
@@ -156,9 +157,9 @@ class CountTests(unittest.TestCase):
 
 class RecordsTests(unittest.TestCase):
     def test_records_json_has_no_narrative_and_is_columnar(self):
-        crashes = agg.unique_crashes(agg.current_reports(tables_of([
-            rec("1", "K", crash_with="pedestrian", tags=[{"t": "vru", "basis": "field", "rule": "VRU-1"}], speed_band="6-15")])))
-        out = agg.build_records(crashes)
+        current = agg.current_reports(tables_of([
+            rec("1", "K", crash_with="pedestrian", tags=[{"t": "vru", "basis": "field", "rule": "VRU-1"}], speed_band="6-15")]))
+        out = agg.build_records(agg.program_incidents(current), agg.programs_per_incident(current))
         self.assertEqual(out["fields"], agg.RECORD_FIELDS)
         self.assertNotIn("narrative", out["fields"])
         self.assertNotIn("secret text", json.dumps(out))
@@ -167,6 +168,69 @@ class RecordsTests(unittest.TestCase):
         self.assertIn("vru:f", row["tags"])
         self.assertEqual(row["speed_band"], "6-15")
         self.assertEqual(row["n_reports"], 1)
+        self.assertEqual((row["n_programs_in_incident"], row["operator"]), (1, "none"))
+
+    def test_records_are_one_row_per_program_and_incident_with_the_programs_own_report(self):
+        reports = [
+            rec("1", "K", "minor", program="waymo_ads", entity="Waymo LLC", city="Phoenix", driver_operator_type="none"),
+            rec("2", "K", "serious", program="other_ads", entity="Transdev", city="Tempe", state="AZ", driver_operator_type="in_vehicle"),
+            rec("3", "J", "none", program="waymo_ads", entity="Waymo LLC", driver_operator_type="remote"),
+            rec("4", "J", "fatal", program="waymo_ads", entity="Waymo LLC", driver_operator_type="in_vehicle"),
+        ]
+        current = agg.current_reports(tables_of(reports))
+        out = agg.build_records(agg.program_incidents(current), agg.programs_per_incident(current))
+        rows = [dict(zip(out["fields"], r)) for r in out["rows"]]
+        self.assertEqual(len(rows), 3)  # K under two programs, J under one
+        by = {(r["incident_key"], r["program"]): r for r in rows}
+        w, o = by[("K", "waymo_ads")], by[("K", "other_ads")]
+        # each row carries its own program's report: entity, city, severity are not borrowed from the other program
+        self.assertEqual((w["id"], w["entity"], w["city"], w["severity"], w["operator"]), ("1", "Waymo LLC", "Phoenix", "minor", "none"))
+        self.assertEqual((o["id"], o["entity"], o["city"], o["severity"], o["operator"]), ("2", "Transdev", "Tempe", "serious", "in_vehicle"))
+        self.assertEqual((w["n_programs_in_incident"], o["n_programs_in_incident"]), (2, 2))
+        j = by[("J", "waymo_ads")]
+        self.assertEqual((j["id"], j["severity"], j["n_reports"], j["n_programs_in_incident"]), ("4", "fatal", 2, 1))
+
+    def test_two_entities_of_one_program_share_a_row_and_both_are_listed(self):
+        reports = [
+            rec("1", "K", "minor", program="other_l2", entity="Ford", kind="ADAS"),
+            rec("2", "K", "none", program="other_l2", entity="GM LLC", kind="ADAS"),
+            rec("3", "J", "none", program="other_l2", entity="Ford", kind="ADAS"),
+        ]
+        current = agg.current_reports(tables_of(reports))
+        out = agg.build_records(agg.program_incidents(current), agg.programs_per_incident(current))
+        rows = {r[1]: dict(zip(out["fields"], r)) for r in out["rows"]}
+        self.assertEqual(rows["K"]["entities"], ["Ford", "GM LLC"])
+        self.assertEqual(rows["K"]["n_reports"], 2)
+        per_entity = Counter(e for r in rows.values() for e in r["entities"])
+        self.assertEqual(per_entity, Counter({"Ford": 2, "GM LLC": 1}))  # what each entity filed, by incident
+
+    def test_program_totals_in_records_equal_counts_json_per_program_and_month(self):
+        reports = [
+            rec("1", "K", "minor", program="waymo_ads", month="2025-01"),
+            rec("2", "K", "serious", program="other_ads", month="2025-02", kind="ADAS", entity="Transdev"),
+            rec("3", "J", "none", program="waymo_ads", month="2025-01"),
+            rec("4", "J", "fatal", program="waymo_ads", month="2025-03"),
+            rec("5", "S", "minor", program="tesla_l2", kind="ADAS", month=None),
+        ]
+        current = agg.current_reports(tables_of(reports))
+        out = agg.build_records(agg.program_incidents(current), agg.programs_per_incident(current))
+        rows = [dict(zip(out["fields"], r)) for r in out["rows"]]
+        got = Counter((r["program"], r["month"]) for r in rows)
+        want = Counter()
+        for r in agg.build_counts(current)["rows"]:
+            want[(r["program"], r["month"])] += r["crashes"]
+        self.assertEqual(got, want)
+
+    def test_record_tags_are_the_union_over_the_programs_own_reports(self):
+        reports = [
+            rec("1", "K", "minor", tags=[{"t": "vru", "basis": "narrative", "rule": "VRU-2"}]),
+            rec("2", "K", "serious", tags=[{"t": "low_speed", "basis": "field", "rule": "LS-1"}, {"t": "vru", "basis": "field", "rule": "VRU-1"}]),
+        ]
+        current = agg.current_reports(tables_of(reports))
+        out = agg.build_records(agg.program_incidents(current), agg.programs_per_incident(current))
+        row = dict(zip(out["fields"], out["rows"][0]))
+        self.assertEqual(sorted(row["tags"]), ["low_speed:f", "vru:f"])  # a field basis beats a narrative basis
+        self.assertEqual(agg.build_counts(current)["rows"][0]["vru"], 1)
 
     def test_narratives_only_for_non_redacted_reports(self):
         reports = [
@@ -236,7 +300,9 @@ class FixtureBuildTests(unittest.TestCase):
         outputs, _ = agg.build_all(self.tables, fetch_log=support.fetch_log_for(self.raw), run_id="r1", run_at=RUN_AT, today=TODAY)
         unique = outputs["meta.json"]["counts_total"]["unique_incidents"]
         self.assertEqual(unique, len(self.tables["incidents"]))
-        self.assertEqual(unique, len(outputs["records.json"]["rows"]))
+        # records are one row per (program, incident): at least the unique incidents, exactly the program-level crashes
+        self.assertGreaterEqual(len(outputs["records.json"]["rows"]), unique)
+        self.assertEqual(len(outputs["records.json"]["rows"]), sum(r["crashes"] for r in outputs["counts.json"]["rows"]))
         self.assertEqual(sum(r["reports"] for r in outputs["counts.json"]["rows"]), outputs["meta.json"]["counts_total"]["reports"])
         self.assertGreaterEqual(sum(r["crashes"] for r in outputs["counts.json"]["rows"]), unique)  # multi-program incidents overlap
         self.assertEqual(validate.check_outputs(outputs, self.tables), [])

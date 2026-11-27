@@ -320,6 +320,41 @@ def check_counts(rows, reports, unique_incidents):
     return errors
 
 
+def check_records(records, count_rows, reports):
+    """records.json is one row per (program, incident): per program it must equal counts.json's crashes and
+    the number of distinct incident_keys the program filed, and entity totals must equal what each entity filed."""
+    fields = records["fields"]
+    program_at, key_at = fields.index("program"), fields.index("incident_key")
+    errors = []
+    pairs = Counter((row[program_at], row[key_at]) for row in records["rows"])
+    for pair, n in pairs.items():
+        if n != 1:
+            errors.append("records.json has %d rows for program %s incident %s, expected one" % (n, pair[0], pair[1]))
+    got = Counter(row[program_at] for row in records["rows"])
+    want = defaultdict(set)
+    for r in reports:
+        want[r["program"]].add(r["incident_key"])
+    counted = Counter()
+    for row in count_rows:
+        counted[row["program"]] += row["crashes"]
+    for program in sorted(set(got) | set(want) | set(counted)):
+        if got[program] != len(want[program]):
+            errors.append("records.json %s: %d rows but the program filed in %d incidents" % (program, got[program], len(want[program])))
+        if got[program] != counted[program]:
+            errors.append("records.json %s: %d rows but counts.json has %d crashes" % (program, got[program], counted[program]))
+    # Every entity's row count (rows that list it among `entities`) is the number of (program, incident) pairs it filed.
+    entities_at = fields.index("entities")
+    want_entity = defaultdict(set)
+    for r in reports:
+        want_entity[r["entity"]].add((r["program"], r["incident_key"]))
+    got_entity = Counter(name for row in records["rows"] for name in row[entities_at])
+    for entity in sorted(set(want_entity) | set(got_entity)):
+        if got_entity[entity] != len(want_entity[entity]):
+            errors.append("records.json lists entity %s on %d rows but it filed in %d (program, incident) pairs"
+                          % (entity, got_entity[entity], len(want_entity[entity])))
+    return errors
+
+
 def check_exposure_sources(outputs):
     known = {s["source_id"] for s in outputs["sources.json"]["rows"]}
     errors = []
@@ -360,8 +395,7 @@ def check_outputs(outputs, tables):
     errors = check_counts(outputs["counts.json"]["rows"], reports, outputs["meta.json"]["counts_total"]["unique_incidents"])
     if incidents != len(tables["incidents"]):
         errors.append("golden incidents table has %d rows but the reports hold %d unique incidents" % (len(tables["incidents"]), incidents))
-    if len(outputs["records.json"]["rows"]) != incidents:
-        errors.append("records.json has %d rows but there are %d unique incidents" % (len(outputs["records.json"]["rows"]), incidents))
+    errors.extend(check_records(outputs["records.json"], outputs["counts.json"]["rows"], reports))
     reports_by_program = Counter(r["program"] for r in reports)
     for program, entry in outputs["lag.json"]["programs"].items():
         if entry["n_reports"] != reports_by_program[program]:

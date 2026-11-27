@@ -251,6 +251,18 @@ class OutputCheckTests(unittest.TestCase):
         rows = self.good_rows() + [{"program": "ghost", "crashes": 1, "reports": 1}]
         self.assertEqual(len(validate.check_counts(rows, self.REPORTS, 2)), 2)
 
+    def test_records_are_checked_per_program_incident_pair(self):
+        reports = [dict(r, entity="E1" if r["program"] == "waymo_ads" else "E2") for r in self.REPORTS]
+        fields = ["id", "incident_key", "program", "entities"]
+        rows = [["1", "K", "waymo_ads", ["E1"]], ["2", "J", "waymo_ads", ["E1"]], ["3", "K", "other_ads", ["E2"]]]
+        self.assertEqual(validate.check_records({"fields": fields, "rows": rows}, self.good_rows(), reports), [])
+        # one row per incident (the old shape) loses the other program's crash and its entity
+        errors = validate.check_records({"fields": fields, "rows": rows[:2]}, self.good_rows(), reports)
+        self.assertTrue(any("other_ads" in e for e in errors) and any("entity E2" in e for e in errors), errors)
+        # a duplicate (program, incident) pair
+        errors = validate.check_records({"fields": fields, "rows": rows + [rows[2]]}, self.good_rows(), reports)
+        self.assertTrue(any("expected one" in e for e in errors), errors)
+
     def test_exposure_rows_must_cite_known_sources(self):
         outputs = {"exposure.json": {"rows": [{"source_ids": ["a", "zzz"]}, {"source_ids": []}]}, "sources.json": {"rows": [{"source_id": "a"}]}}
         errors = validate.check_exposure_sources(outputs)
