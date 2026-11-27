@@ -109,7 +109,7 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
     return {
       animation: false,
       textStyle: { color: t.muted },
-      grid: { left: 66, right: 18, top: 24, bottom: 62 },
+      grid: { left: 66, right: 18, top: 24, bottom: 74 },
       legend: { bottom: 0, textStyle: { color: t.muted }, data: curves.map((c) => c.label), itemWidth: 14 },
       tooltip: {
         trigger: 'item', confine: true, backgroundColor: t.surface, borderColor: t.rule, textStyle: { color: t.ink },
@@ -125,7 +125,7 @@ function LearningLoaded({ data, rates, mode }: { data: Data; rates: RatesData; m
         },
       },
       xAxis: {
-        type: 'log', min: xMin, max: xMax, name: 'miles since first disclosed month (not lifetime miles), log scale', nameLocation: 'middle', nameGap: 30,
+        type: 'log', min: xMin, max: xMax, name: 'miles since first disclosed month (not lifetime miles), log scale', nameLocation: 'middle', nameGap: 32,
         nameTextStyle: { color: t.muted }, axisLabel: { color: t.muted, formatter: (v: number) => fmtNum(v) },
         axisLine: { lineStyle: { color: t.rule } }, splitLine: { lineStyle: { color: t.grid } },
       },

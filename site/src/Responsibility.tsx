@@ -118,7 +118,7 @@ function Loaded({ data, resp, mode }: { data: Data; resp: RespData; mode: Mode }
         </div>
       </div>
       <p className="count" aria-live="polite" data-testid="resp-count">
-        <b>{fmt(rows.length)}</b> of {fmt(all.length)} report-labels in view
+        <b>{fmt(rows.length)}</b> of {fmt(all.length)} report-labels in view (one per report, not per crash)
         {anyControl && (
           <button type="button" className="link" onClick={clearAll}>Clear filters</button>
         )}
@@ -355,11 +355,14 @@ function Flow({ graph, selected, mode, onPick }: { graph: SankeyGraph; selected:
       {graph.drawn === 0 ? (
         <p className="callout small">No reports with structured fields in this view.</p>
       ) : (
+        <>
+        <p className="small scroll-hint">Swipe sideways to see all five columns.</p>
         <div className="scroll-x">
           <div style={{ minWidth: 800 }}>
             <EChart option={option} height={narrow ? 520 : 560} label={`Flow diagram of ${fmt(graph.drawn)} reports from engagement, subject vehicle movement, what was hit and impact point to the inferred label`} onEvents={handlers} />
           </div>
         </div>
+        </>
       )}
       {selected && <p className="small">Flow selected: <b>{selText}</b> (listed below; click it again to clear).</p>}
       <p className="small">

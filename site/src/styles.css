@@ -413,3 +413,6 @@ table.coverage th, table.coverage td { padding: 4px 6px; font-size: 12px; }
 @media (max-width: 480px) {
   .resp-drawer { width: 100vw; }
 }
+
+.scroll-hint { display: none; margin: 0 0 4px; }
+@media (max-width: 860px) { .scroll-hint { display: block; } }

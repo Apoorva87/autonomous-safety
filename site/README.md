@@ -44,16 +44,21 @@ coverage matrix, Tesla report panel). It reads `exposure.json`, `counts.json`, `
 
 ## Compound views
 
-Loaded on demand (`React.lazy`), all reading the same JSON as the Rates tab (never `narratives.json`); view state lives in the URL.
+Loaded on demand (`React.lazy`), all reading the same JSON as the Rates tab (never `narratives.json`, except the Responsibility drawer); view state lives in the URL.
 
 | Tab | Source | Notes |
 |---|---|---|
-| Impact map | `Impact.tsx`, `lib/impact.ts`, `components/CarOutline.tsx` | Needs `sv_contact_areas` / `cp_contact_areas` columns in `records.json` (lists of zone names). Without them the tab says so and shows crash-with counts. |
+| Impact map | `Impact.tsx`, `lib/impact.ts`, `components/CarOutline.tsx` | Reads `sv_contact_areas` / `cp_contact_areas` from `records.json` (lists of zone names; exported now). If they are ever missing the tab says so and shows crash-with counts. "Shade zones by" can colour each zone by the share of its crashes with one inferred label (`responsibility.json`, loaded only then). |
 | Cities | `Cities.tsx`, `lib/cities.ts` | Explicit SGO city to Waymo exposure-region mapping (tested against `exposure.json`); counts-only ranking for cities without miles. |
 | Timeline | `Timeline.tsx`, `lib/timeline.ts` | Brush to zoom (`tz0`, `tz1`); events and investigations; jumps to the explorer with `xf`, `xt`, `xp`. |
 | Learning | `Learning.tsx`, `lib/learning.ts` | Quarterly rate against cumulative miles since the first disclosed month (log-log). |
 | Claims | `Claims.tsx`, `lib/claims.ts` | Company-reported panels and NHTSA-derived panels are never merged. |
+| Responsibility | `Responsibility.tsx`, `ResponsibilityList.tsx`, `ResponsibilityRules.tsx`, `lib/responsibility.ts`, `state/responsibilityData.ts` | Inferred labels (`responsibility.json`, `_rules.json`, `_audit.json`) with the "not a finding of fault" banner: label bars (share or count, confidence by stripes), an ECharts sankey (engagement to label), over-time panels, a paginated list with CSV export and a drawer that lazy-loads `narratives.json` (only the tab's drawer reads it), the rules, retired rules and narrative audit. View state: `rp`, `rsv`, `rm0`, `rm1`, `rv`, `rt`, `rf`, `rl`, `rr`, `rpg`, `rd`. |
 | Explorer lenses | `Explorer.tsx`, `lib/lens.ts` | EA26002 and PE25012 presets (`xl`); an approximation of each probe, not its case list. |
+
+## Exposure flags
+
+Exposure rows whose method text says adjacent disclosure segments differ by more than 3x (`methodFlag` in `lib/metrics.ts`) carry `flag` on their `Point`; Rates (chart and table) and Timeline mark those months with a flag icon and the note.
 
 ## Notes
 
