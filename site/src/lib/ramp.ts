@@ -7,6 +7,15 @@ export const SEQ_BLUE: Record<Mode, string[]> = {
   dark: ['#1c2836', '#26466f', '#3b72b3', '#6aa2e6', '#b3d3f8'],
 };
 
+export const SEQ_ORANGE: Record<Mode, string[]> = {
+  light: ['#fdf0e8', '#f9d0b8', '#f2a47f', '#eb6834', '#8f3410'],
+  dark: ['#2b211b', '#583520', '#94502a', '#d95926', '#f6bd9a'],
+};
+export const SEQ_GRAY: Record<Mode, string[]> = {
+  light: ['#f1f2f4', '#d5d9dd', '#a9b0b7', '#6d757d', '#2f353b'],
+  dark: ['#23282c', '#383f45', '#5a636b', '#8a929a', '#cdd2d7'],
+};
+
 const hex = (s: string): [number, number, number] => {
   const n = parseInt(s.slice(1), 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];

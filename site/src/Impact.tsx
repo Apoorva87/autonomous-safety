@@ -6,14 +6,23 @@ import { PROGRAMS, PROGRAM_BY_KEY, SEVERITY_LABEL, SEVERITY_ORDER, TAG_LABEL, TA
 import { CarOutline } from './components/CarOutline';
 import { ChipGroup } from './components/ChipGroup';
 import {
-  ZONES, ZONE_LABEL, hasSide, inZone, passesImpact, zoneStats, zonesOf, type ImpactFilters, type Side, type WithContact, type Zone,
+  ZONES, ZONE_LABEL, hasSide, inZone, passesImpact, zoneLabelShare, zoneStats, zonesOf, type ImpactFilters, type Side, type WithContact, type Zone,
 } from './lib/impact';
-import { SEQ_BLUE, rampColor } from './lib/ramp';
+import { SEQ_BLUE, SEQ_GRAY, SEQ_ORANGE, rampColor } from './lib/ramp';
+import { useResponsibility } from './state/responsibilityData';
+import { BANNER, CANNOT_NAME, OTHER_NAME, OWN_ADS, OWN_L2, type Label } from './lib/responsibility';
 import { setQuery, useQuery } from './state/scenario';
 import { getList, setList, toggleIn } from './state/viewstate';
 
 const SPEED_BANDS = ['0', '1-5', '6-15', '16-30', '31-50', '51+', 'unknown'];
 const MAX_LIST = 60;
+
+// "Colour by inferred label": the shade is the share of a zone's crashes carrying one label (rules-based inference, not fault).
+const LABEL_MODES: { id: string; label: Label; short: string; name: string }[] = [
+  { id: 'op', label: 'other_party', short: OTHER_NAME, name: OTHER_NAME },
+  { id: 'own', label: 'subject_vehicle_initiated', short: 'Own motion', name: 'Own motion' },
+  { id: 'ind', label: 'indeterminate', short: CANNOT_NAME, name: CANNOT_NAME },
+];
 
 const parseZone = (s: string | null): { side: Side; zone: Zone } | null => {
   const [side, zone] = (s ?? '').split(':');
@@ -35,6 +44,13 @@ export function Impact({ data, mode }: { data: Data; mode: Mode }) {
     tags: getList(params, 'itg'),
   };
   const picked = parseZone(params.get('iz'));
+  const labelMode = LABEL_MODES.find((m) => m.id === params.get('icl')) ?? null;
+  const { resp, error: respError } = useResponsibility(labelMode != null);
+  const labelById = useMemo(() => {
+    const m = new Map<string, Label>();
+    if (resp) for (const r of resp.rows) m.set(r.report_id, r.label);
+    return m;
+  }, [resp]);
 
   const crashWithOptions = useMemo(() => {
     const m = new Map<string, number>();
@@ -49,6 +65,10 @@ export function Impact({ data, mode }: { data: Data; mode: Mode }) {
   );
   const sv = useMemo(() => zoneStats(filtered, 'sv'), [filtered]);
   const cp = useMemo(() => zoneStats(filtered, 'cp'), [filtered]);
+  const labelReady = labelMode != null && resp != null;
+  const perSv = useMemo(() => (labelReady ? zoneLabelShare(filtered, 'sv', (c) => labelById.get(c.id), labelMode!.label) : null), [labelReady, filtered, labelById, labelMode]);
+  const perCp = useMemo(() => (labelReady ? zoneLabelShare(filtered, 'cp', (c) => labelById.get(c.id), labelMode!.label) : null), [labelReady, filtered, labelById, labelMode]);
+  const labelRamp = labelMode ? (labelMode.id === 'op' ? SEQ_BLUE : labelMode.id === 'own' ? SEQ_ORANGE : SEQ_GRAY)[mode] : null;
   // One colour scale per outline pair so the two cars are comparable.
   const maxShare = useMemo(() => {
     let m = 0;
@@ -61,7 +81,7 @@ export function Impact({ data, mode }: { data: Data; mode: Mode }) {
 
   const listed = useMemo(() => (picked ? inZone(filtered, picked.side, picked.zone) : []), [filtered, picked]);
   const anyFilter = [f.programs, f.severities, f.speedBands, f.crashWith, f.tags].some((l) => l.length > 0);
-  const clearAll = () => setQuery({ ip: null, isv: null, isp: null, icw: null, itg: null, iz: null });
+  const clearAll = () => setQuery({ ip: null, isv: null, isp: null, icw: null, itg: null, iz: null, icl: null });
 
   const setF = (key: string, list: string[]) => {
     setList(key, list);
@@ -113,7 +133,29 @@ export function Impact({ data, mode }: { data: Data; mode: Mode }) {
           onToggle={(v) => setF('itg', toggleIn(f.tags, v))}
           onClear={() => setF('itg', [])}
         />
+        <div className="field">
+          <span>Shade zones by</span>
+          <div className="seg" role="group" aria-label="What the shading shows">
+            <button type="button" className={!labelMode ? 'on' : ''} aria-pressed={!labelMode} onClick={() => setQuery({ icl: null })}>Share of crashes</button>
+            {LABEL_MODES.map((m) => (
+              <button key={m.id} type="button" className={labelMode?.id === m.id ? 'on' : ''} aria-pressed={labelMode?.id === m.id} onClick={() => setQuery({ icl: m.id })}>
+                Inferred: {m.short}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
+      {labelMode && (
+        <div className="callout why-no-data" role="note">
+          <b>{resp ? BANNER(resp.rulesVersion) : 'Inferred, not a finding of fault. NHTSA records no fault.'}</b>
+          <p className="small">
+            Each zone is shaded by the share of its crashes that carry the label &ldquo;{labelMode.name}&rdquo; (one label per crash, from its primary report). For Level 2 programs own motion means &ldquo;{OWN_L2}&rdquo;; for ADS programs &ldquo;{OWN_ADS}&rdquo;.
+            Where the other-party label follows from the contact area itself (for example, struck at the rear while stopped), the shading partly restates the rule, so read it as a description of the rules, not as independent evidence.
+            {respError && <> Could not load the labels ({respError}).</>}
+            {!resp && !respError && ' Loading the labels…'}
+          </p>
+        </div>
+      )}
       <p className="count" aria-live="polite" data-testid="impact-count">
         <b>{fmt(filtered.length)}</b> of {fmt(crashes.length)} unique crashes match
         {anyFilter && (
@@ -133,7 +175,8 @@ export function Impact({ data, mode }: { data: Data; mode: Mode }) {
                 title="Subject vehicle: where it was hit"
                 stats={sv}
                 mode={mode}
-                maxShare={maxShare}
+                maxShare={perSv ? 1 : maxShare}
+                labelMode={perSv && labelRamp ? { name: labelMode!.name, ramp: labelRamp, per: perSv } : undefined}
                 selected={picked?.side === 'sv' ? picked.zone : null}
                 onSelect={(z) => setQuery({ iz: z ? `sv:${z}` : null })}
               />
@@ -143,7 +186,8 @@ export function Impact({ data, mode }: { data: Data; mode: Mode }) {
                 title="Other party: where it was hit"
                 stats={cp}
                 mode={mode}
-                maxShare={maxShare}
+                maxShare={perCp ? 1 : maxShare}
+                labelMode={perCp && labelRamp ? { name: labelMode!.name, ramp: labelRamp, per: perCp } : undefined}
                 selected={picked?.side === 'cp' ? picked.zone : null}
                 onSelect={(z) => setQuery({ iz: z ? `cp:${z}` : null })}
               />
@@ -151,8 +195,8 @@ export function Impact({ data, mode }: { data: Data; mode: Mode }) {
           </div>
           <div className="ramp-legend" aria-label="Colour scale">
             <span className="small">0%</span>
-            <i style={{ background: `linear-gradient(90deg, ${SEQ_BLUE[mode].join(',')})` }} />
-            <span className="small">{(maxShare * 100).toFixed(0)}% of crashes with a known area</span>
+            <i style={{ background: `linear-gradient(90deg, ${(labelRamp ?? SEQ_BLUE[mode]).join(',')})` }} />
+            <span className="small">{perSv ? `100% of the zone's labelled crashes are "${labelMode!.name}"` : `${(maxShare * 100).toFixed(0)}% of crashes with a known area`}</span>
             <span className="small">
               <i className="mk-hatch" /> fewer than 10 crashes
             </span>

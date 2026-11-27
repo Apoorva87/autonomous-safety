@@ -21,16 +21,17 @@ export function loadResponsibility(): Promise<RespData> {
   return respPromise;
 }
 
-export function useResponsibility(): { resp: RespData | null; error: string | null } {
+export function useResponsibility(enabled = true): { resp: RespData | null; error: string | null } {
   const [resp, setResp] = useState<RespData | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
+    if (!enabled) return;
     let live = true;
     loadResponsibility().then((r) => live && setResp(r), (e) => live && setError(String(e)));
     return () => {
       live = false;
     };
-  }, []);
+  }, [enabled]);
   return { resp, error };
 }
 

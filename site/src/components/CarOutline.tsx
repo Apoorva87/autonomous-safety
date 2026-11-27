@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from 'react';
-import { ZONES, ZONE_LABEL, shadeOf, type Side, type Zone, type ZoneStats } from '../lib/impact';
+import { ZONES, ZONE_LABEL, shadeOf, type Zone, type ZoneLabelShare, type ZoneStats } from '../lib/impact';
 import { SEQ_BLUE, rampColor, textOn } from '../lib/ramp';
 import { ui, type Mode } from '../theme';
 
@@ -30,6 +30,7 @@ export function CarOutline({
   selected,
   onSelect,
   maxShare,
+  labelMode,
 }: {
   title: string;
   stats: ZoneStats;
@@ -37,14 +38,19 @@ export function CarOutline({
   selected: Zone | null;
   onSelect: (z: Zone | null) => void;
   maxShare: number;
+  /** Colour by inferred label: each zone shows the share of its labelled crashes that carry `name`, on its own ramp. */
+  labelMode?: { name: string; ramp: string[]; per: ZoneLabelShare };
 }) {
   const t = ui(mode);
   const id = useId().replace(/:/g, '');
   const wrap = useRef<HTMLDivElement>(null);
   const [tip, setTip] = useState<{ z: Zone; x: number; y: number } | null>(null);
-  const ramp = SEQ_BLUE[mode];
+  const ramp = labelMode?.ramp ?? SEQ_BLUE[mode];
+  const count = (z: Zone) => (labelMode ? labelMode.per[z].n : stats.counts[z]);
+  // In label mode the denominator is the zone's own labelled crashes; otherwise the crashes with a known area.
+  const denom = (z: Zone) => (labelMode ? labelMode.per[z].d : stats.known);
 
-  const share = (z: Zone) => (stats.known > 0 ? stats.counts[z] / stats.known : 0);
+  const share = (z: Zone) => (denom(z) > 0 ? count(z) / denom(z) : 0);
   const fillOf = (z: Zone) => rampColor(ramp, shadeOf(share(z), maxShare) * 0.92 + 0.04);
   const place = (e: { clientX: number; clientY: number }, z: Zone) => {
     const r = wrap.current!.getBoundingClientRect();
@@ -55,7 +61,10 @@ export function CarOutline({
     const b = el.getBoundingClientRect();
     setTip({ z, x: b.left - r.left + b.width / 2, y: b.top - r.top + b.height / 2 });
   };
-  const label = (z: Zone) => `${ZONE_LABEL[z]}: ${stats.counts[z]} crashes, ${(share(z) * 100).toFixed(1)}% of ${stats.known} with a known area`;
+  const label = (z: Zone) =>
+    labelMode
+      ? `${ZONE_LABEL[z]}: ${count(z)} of ${denom(z)} crashes labelled ${labelMode.name} (${(share(z) * 100).toFixed(1)}%)`
+      : `${ZONE_LABEL[z]}: ${stats.counts[z]} crashes, ${(share(z) * 100).toFixed(1)}% of ${stats.known} with a known area`;
 
   const zoneProps = (z: Zone) => ({
     role: 'button' as const,
@@ -80,9 +89,9 @@ export function CarOutline({
 
   const zoneShape = (z: Zone) => {
     const fill = fillOf(z);
-    const low = stats.counts[z] < LOW_N;
+    const low = denom(z) < LOW_N;
     const on = selected === z;
-    const pct = stats.known > 0 ? `${(share(z) * 100).toFixed(share(z) >= 0.1 ? 0 : 1)}%` : '';
+    const pct = denom(z) > 0 ? `${(share(z) * 100).toFixed(share(z) >= 0.1 ? 0 : 1)}%` : '';
     const common = { fill, stroke: t.surface, strokeWidth: 2 };
     if (z === 'bottom') {
       return (
@@ -106,8 +115,8 @@ export function CarOutline({
         <text x={lx} y={ly} textAnchor="middle" fontSize={z === 'left' || z === 'right' || z.includes('_') ? 12.5 : 14} fontWeight={700} fill={textOn(fill)} pointerEvents="none">
           {pct}
         </text>
-        <text x={lx} y={ly + 15} textAnchor="middle" fontSize={10.5} fill={textOn(fill)} pointerEvents="none">
-          {stats.counts[z]}
+        <text x={lx} y={ly + 15} textAnchor="middle" fontSize={labelMode ? 9 : 10.5} fill={textOn(fill)} pointerEvents="none">
+          {labelMode ? `${count(z)}/${denom(z)}` : stats.counts[z]}
         </text>
       </g>
     );
@@ -143,10 +152,12 @@ export function CarOutline({
         <div className="tip car-tip" role="status" style={{ left: Math.min(tip.x + 14, Math.max(8, (wrap.current?.clientWidth ?? 300) - 178)), top: Math.max(4, tip.y - 10) }}>
           <b>{ZONE_LABEL[tip.z]}</b>
           <span>
-            {stats.counts[tip.z].toLocaleString('en-US')} crashes, {(share(tip.z) * 100).toFixed(1)}%
+            {count(tip.z).toLocaleString('en-US')} crashes, {(share(tip.z) * 100).toFixed(1)}%
           </span>
-          <span>of {stats.known.toLocaleString('en-US')} with a known area</span>
-          {stats.counts[tip.z] < LOW_N && <span>Under {LOW_N} crashes: rough</span>}
+          <span>
+            {labelMode ? `labelled "${labelMode.name}", of ${denom(tip.z).toLocaleString('en-US')} crashes in this zone` : `of ${stats.known.toLocaleString('en-US')} with a known area`}
+          </span>
+          {denom(tip.z) < LOW_N && <span>Under {LOW_N} crashes: rough</span>}
         </div>
       )}
     </figure>

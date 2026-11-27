@@ -77,3 +77,22 @@ export const inZone = (crashes: WithContact[], side: Side, zone: Zone) => crashe
 
 /** Color-scale position (0..1) of a share, scaled to the largest share so the map uses its full range. */
 export const shadeOf = (share: number, maxShare: number) => (maxShare > 0 ? Math.min(1, Math.max(0, share / maxShare)) : 0);
+
+export type ZoneLabelShare = Record<Zone, { n: number; d: number }>;
+
+/**
+ * Per zone: `d` crashes that touched the zone and have an inferred label, `n` of them with the `target` label.
+ * Used to colour the outlines by inferred label (share of the zone's crashes), never as a count of fault.
+ */
+export function zoneLabelShare(crashes: WithContact[], side: Side, labelOf: (c: WithContact) => string | undefined, target: string): ZoneLabelShare {
+  const out = Object.fromEntries(ZONES.map((z) => [z, { n: 0, d: 0 }])) as ZoneLabelShare;
+  for (const c of crashes) {
+    const l = labelOf(c);
+    if (l == null) continue;
+    for (const z of new Set(zonesOf(c, side))) {
+      out[z].d++;
+      if (l === target) out[z].n++;
+    }
+  }
+  return out;
+}

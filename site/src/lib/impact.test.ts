@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasContactData, inZone, passesImpact, shadeOf, zoneStats, zonesOf, type WithContact } from './impact';
+import { hasContactData, inZone, passesImpact, shadeOf, zoneLabelShare, zoneStats, zonesOf, type WithContact } from './impact';
 import { LENS_BY_ID } from './lens';
 import type { Crash } from '../data';
 
@@ -76,5 +76,20 @@ describe('investigation lenses', () => {
     expect(pe(t({ sv_movement: 'lane_departure' }))).toBe(true);
     expect(pe(t({ sv_movement: 'proceeding_straight' }))).toBe(false);
     expect(pe(c({ tags: ['intersection_signal:f'] }) as Crash)).toBe(false);
+  });
+});
+
+describe('zone share by inferred label', () => {
+  const rows = [
+    c({ id: 'a', sv_contact_areas: ['rear'] }), c({ id: 'b', sv_contact_areas: ['rear', 'rear_left'] }), c({ id: 'c', sv_contact_areas: ['front'] }),
+    c({ id: 'd', sv_contact_areas: ['rear'] }), c({ id: 'e', sv_contact_areas: ['unknown'] }),
+  ];
+  const labels: Record<string, string> = { a: 'other_party', b: 'other_party', c: 'subject_vehicle_initiated' }; // d has no label
+  it('divides labelled crashes in a zone by the target label; unlabelled crashes and unknown zones are left out', () => {
+    const s = zoneLabelShare(rows, 'sv', (x) => labels[x.id], 'other_party');
+    expect(s.rear).toEqual({ n: 2, d: 2 });
+    expect(s.rear_left).toEqual({ n: 1, d: 1 });
+    expect(s.front).toEqual({ n: 0, d: 1 });
+    expect(s.top).toEqual({ n: 0, d: 0 });
   });
 });
